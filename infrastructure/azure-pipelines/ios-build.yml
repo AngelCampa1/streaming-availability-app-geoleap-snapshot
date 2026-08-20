@@ -1,0 +1,294 @@
+# Azure DevOps Pipeline for iOS Build - GeoLeapMobileFresh
+# This pipeline builds the React Native iOS app to verify it compiles successfully
+# Manual trigger only - no automatic CI/CD triggers
+
+trigger: none
+pr: none
+
+pool:
+  vmImage: 'macos-latest'
+
+variables:
+  - name: WORKING_DIR
+    value: '$(System.DefaultWorkingDirectory)/mobile'
+  - name: NODE_VERSION
+    value: '20.x'
+  - name: RUBY_VERSION
+    value: '3.2'
+  - name: XCODE_VERSION
+    value: '15.4'
+  - name: SCHEME
+    value: 'GeoLeapMobileFresh'
+  - name: WORKSPACE
+    value: 'GeoLeap.xcworkspace'
+  - name: BUILD_CONFIGURATION
+    value: 'Release'
+  - name: SDK
+    value: 'iphonesimulator'
+  - name: DESTINATION
+    value: 'generic/platform=iOS Simulator'
+
+stages:
+  - stage: Build
+    displayName: 'Build iOS App'
+    jobs:
+      - job: BuildiOS
+        displayName: 'Build iOS'
+        timeoutInMinutes: 60
+
+        steps:
+          # Checkout code
+          - checkout: self
+            clean: true
+            fetchDepth: 1
+
+          # Select Xcode version (using xcode-select)
+          - script: |
+              echo "Available Xcode versions:"
+              ls -la /Applications/ | grep Xcode
+              echo ""
+              # Try to select Xcode 15.4, fall back to latest available
+              if [ -d "/Applications/Xcode_$(XCODE_VERSION).app" ]; then
+                sudo xcode-select -s /Applications/Xcode_$(XCODE_VERSION).app/Contents/Developer
+              elif [ -d "/Applications/Xcode_15.4.app" ]; then
+                sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+              elif [ -d "/Applications/Xcode_15.3.app" ]; then
+                sudo xcode-select -s /Applications/Xcode_15.3.app/Contents/Developer
+              elif [ -d "/Applications/Xcode_15.2.app" ]; then
+                sudo xcode-select -s /Applications/Xcode_15.2.app/Contents/Developer
+              elif [ -d "/Applications/Xcode.app" ]; then
+                sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+              fi
+              echo "Selected Xcode:"
+              xcode-select -p
+              xcodebuild -version
+            displayName: 'Select Xcode Version'
+
+          # Setup Node.js
+          - task: NodeTool@0
+            displayName: 'Install Node.js $(NODE_VERSION)'
+            inputs:
+              versionSpec: '$(NODE_VERSION)'
+
+          # Setup Ruby for CocoaPods
+          - task: UseRubyVersion@0
+            displayName: 'Install Ruby $(RUBY_VERSION)'
+            inputs:
+              versionSpec: '$(RUBY_VERSION)'
+              addToPath: true
+
+          # Cache node_modules
+          - task: Cache@2
+            displayName: 'Cache node_modules'
+            inputs:
+              key: 'npm | "$(Agent.OS)" | $(WORKING_DIR)/package-lock.json'
+              restoreKeys: |
+                npm | "$(Agent.OS)"
+              path: $(WORKING_DIR)/node_modules
+              cacheHitVar: 'NODE_MODULES_RESTORED'
+
+          # Cache CocoaPods (using Podfile AND package.json as key to bust cache when dependencies change)
+          # IMPORTANT: Include package.json in cache key because patch-package modifies
+          # node_modules which affects pod compilation. The version bump in package.json
+          # or changes to dependencies will invalidate the cache.
+          # Using 'pods-v3' to bust all old caches that had unpatched react-native-screens
+          - task: Cache@2
+            displayName: 'Cache CocoaPods'
+            inputs:
+              key: 'pods-v3 | "$(Agent.OS)" | $(WORKING_DIR)/ios/Podfile | $(WORKING_DIR)/package.json'
+              restoreKeys: |
+                pods-v3 | "$(Agent.OS)"
+              path: $(WORKING_DIR)/ios/Pods
+              cacheHitVar: 'PODS_RESTORED'
+            continueOnError: true
+
+          # Install npm dependencies
+          - script: |
+              npm ci
+            displayName: 'Install npm dependencies'
+            workingDirectory: $(WORKING_DIR)
+            condition: ne(variables['NODE_MODULES_RESTORED'], 'true')
+
+          # Install npm dependencies (if cache hit, still run to ensure lock file consistency)
+          - script: |
+              npm ci
+            displayName: 'Verify npm dependencies'
+            workingDirectory: $(WORKING_DIR)
+            condition: eq(variables['NODE_MODULES_RESTORED'], 'true')
+            continueOnError: true
+
+          # Install CocoaPods gem
+          - script: |
+              gem install cocoapods
+            displayName: 'Install CocoaPods'
+
+          # Install Pods (fresh install - no cache)
+          - script: |
+              cd ios
+              pod install --repo-update
+            displayName: 'Install CocoaPods dependencies'
+            workingDirectory: $(WORKING_DIR)
+            condition: ne(variables['PODS_RESTORED'], 'true')
+
+          # Verify Pods (if cache hit) - run pod install to pick up any changes
+          # This ensures patched node_modules are properly linked
+          - script: |
+              cd ios
+              # Run pod install to ensure any patched native code is picked up
+              pod install
+            displayName: 'Verify CocoaPods dependencies'
+            workingDirectory: $(WORKING_DIR)
+            condition: eq(variables['PODS_RESTORED'], 'true')
+
+          # Create .env file (if needed)
+          - script: |
+              if [ ! -f .env ]; then
+                echo "# Environment variables for build" > .env
+                echo "API_URL=https://api.geoleap.com" >> .env
+              fi
+            displayName: 'Create .env file'
+            workingDirectory: $(WORKING_DIR)
+
+          # Clean DerivedData to avoid build cache issues
+          - script: |
+              rm -rf ~/Library/Developer/Xcode/DerivedData
+            displayName: 'Clean DerivedData'
+            workingDirectory: $(WORKING_DIR)
+
+          # Generate React Native Codegen files
+          # This MUST run before xcodebuild to generate the JSI/TurboModule files
+          - script: |
+              echo "Generating React Native Codegen files..."
+
+              # Create the output directory that xcodebuild expects
+              mkdir -p ios/build/generated/ios
+
+              # Run the codegen script from react-native
+              cd ios
+
+              # Use the react-native codegen CLI to generate files
+              node ../node_modules/react-native/scripts/generate-codegen-artifacts.js \
+                --path .. \
+                --outputPath build/generated/ios \
+                --targetPlatform ios \
+                --libraryType all
+
+              echo "Codegen files generated:"
+              ls -la build/generated/ios/ || echo "No files in root"
+              find build/generated -name "*.cpp" -o -name "*.mm" | head -20 || echo "No cpp/mm files found"
+            displayName: 'Generate React Native Codegen'
+            workingDirectory: $(WORKING_DIR)
+
+          # Build iOS App (Simulator - no signing required)
+          # Note: EXCLUDED_ARCHS excludes x86_64 for Apple Silicon runners (macos-latest uses M1)
+          # Using xcodebuild without xcpretty for better error visibility
+          # IMPORTANT: Do NOT use 'clean build' - clean removes ReactCodegen generated files
+          # We already clean DerivedData in a previous step
+          - script: |
+              set -e
+              xcodebuild \
+                -workspace ios/$(WORKSPACE) \
+                -scheme $(SCHEME) \
+                -configuration $(BUILD_CONFIGURATION) \
+                -sdk $(SDK) \
+                -destination "$(DESTINATION)" \
+                -derivedDataPath ios/build \
+                CODE_SIGNING_ALLOWED=NO \
+                CODE_SIGNING_REQUIRED=NO \
+                CODE_SIGN_IDENTITY="" \
+                CODE_SIGN_ENTITLEMENTS="" \
+                ONLY_ACTIVE_ARCH=YES \
+                EXCLUDED_ARCHS='x86_64' \
+                COMPILER_INDEX_STORE_ENABLE=NO \
+                build 2>&1 | tee build.log
+
+              # Check for build success
+              if grep -q "BUILD SUCCEEDED" build.log; then
+                echo "✅ Build succeeded!"
+              else
+                echo "❌ Build failed - check logs above"
+                exit 1
+              fi
+            displayName: 'Build iOS App (Simulator)'
+            workingDirectory: $(WORKING_DIR)
+
+          # Run iOS tests (optional - can be enabled)
+          # - script: |
+          #     set -o pipefail
+          #     xcodebuild \
+          #       -workspace ios/$(WORKSPACE) \
+          #       -scheme $(SCHEME) \
+          #       -configuration Debug \
+          #       -sdk $(SDK) \
+          #       -destination "$(DESTINATION)" \
+          #       -derivedDataPath ios/build \
+          #       CODE_SIGNING_ALLOWED=NO \
+          #       test | xcpretty
+          #   displayName: 'Run iOS Tests'
+          #   workingDirectory: $(WORKING_DIR)
+          #   continueOnError: true
+
+          # Publish build artifacts (optional)
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Build Logs'
+            inputs:
+              PathtoPublish: '$(WORKING_DIR)/ios/build/Logs'
+              ArtifactName: 'ios-build-logs'
+            condition: always()
+            continueOnError: true
+
+  # Optional: Device Build Stage (requires Apple Developer signing)
+  # Uncomment and configure when ready for device/App Store builds
+  # - stage: DeviceBuild
+  #   displayName: 'Build for Device'
+  #   dependsOn: Build
+  #   condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  #   jobs:
+  #     - job: BuildDevice
+  #       displayName: 'Build for Device'
+  #       pool:
+  #         vmImage: 'macos-latest'
+  #       steps:
+  #         - checkout: self
+  #
+  #         # Install Apple certificate and provisioning profile
+  #         - task: InstallAppleCertificate@2
+  #           displayName: 'Install Apple Certificate'
+  #           inputs:
+  #             certSecureFile: '$(APPLE_CERTIFICATE_FILE)'
+  #             certPwd: '$(APPLE_CERTIFICATE_PASSWORD)'
+  #             keychain: 'temp'
+  #
+  #         - task: InstallAppleProvisioningProfile@1
+  #           displayName: 'Install Provisioning Profile'
+  #           inputs:
+  #             provisioningProfileLocation: 'secureFiles'
+  #             provProfileSecureFile: '$(PROVISIONING_PROFILE_FILE)'
+  #
+  #         # Build for device
+  #         - script: |
+  #             xcodebuild \
+  #               -workspace ios/$(WORKSPACE) \
+  #               -scheme $(SCHEME) \
+  #               -configuration Release \
+  #               -sdk iphoneos \
+  #               -archivePath ios/build/$(SCHEME).xcarchive \
+  #               archive
+  #           displayName: 'Archive iOS App'
+  #           workingDirectory: $(WORKING_DIR)
+  #
+  #         # Export IPA
+  #         - script: |
+  #             xcodebuild \
+  #               -exportArchive \
+  #               -archivePath ios/build/$(SCHEME).xcarchive \
+  #               -exportPath ios/build \
+  #               -exportOptionsPlist ios/ExportOptions.plist
+  #           displayName: 'Export IPA'
+  #           workingDirectory: $(WORKING_DIR)
+  #
+  #         - task: PublishBuildArtifacts@1
+  #           displayName: 'Publish IPA'
+  #           inputs:
+  #             PathtoPublish: '$(WORKING_DIR)/ios/build/$(SCHEME).ipa'
+  #             ArtifactName: 'ios-ipa'

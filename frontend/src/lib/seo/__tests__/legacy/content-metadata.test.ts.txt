@@ -1,0 +1,319 @@
+import { generateContentMetadata, generateMetaTags } from '../content-metadata';
+import type { ContentData } from '@/lib/api/content';
+
+// Mock the url-generation module
+jest.mock('../url-generation', () => ({
+  generateCanonicalUrl: jest.fn((type, slug) => `https://streamvpn.com/content/${type}/${slug}`),
+  generateOgImageUrl: jest.fn((id, title, type) => `https://streamvpn.com/api/og?id=${id}&title=${encodeURIComponent(title)}&type=${type}`),
+}));
+
+describe('Content Metadata Generation', () => {
+  const mockMovieContent: ContentData = {
+    id: '123',
+    title: 'The Dark Knight',
+    originalTitle: 'The Dark Knight',
+    overview: 'When the menace known as the Joker wreaks havoc and chaos on the people of Gotham, Batman must accept one of the greatest psychological and physical tests.',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/poster.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1920/backdrop.jpg',
+    releaseYear: 2008,
+    genres: ['Action', 'Crime', 'Drama'],
+    rating: 9.0,
+    voteCount: 2500000,
+    runtime: 152,
+    contentRating: 'PG-13',
+    cast: [
+      { id: '1', name: 'Christian Bale', character: 'Bruce Wayne / Batman', profilePath: '/christian-bale.jpg' },
+      { id: '2', name: 'Heath Ledger', character: 'Joker', profilePath: '/heath-ledger.jpg' },
+      { id: '3', name: 'Aaron Eckhart', character: 'Harvey Dent', profilePath: '/aaron-eckhart.jpg' },
+    ],
+    crew: [
+      { id: '4', name: 'Christopher Nolan', job: 'Director', profilePath: '/nolan.jpg' },
+      { id: '5', name: 'Jonathan Nolan', job: 'Writer', profilePath: '/jonathan.jpg' },
+    ],
+    streamingOptions: [
+      {
+        serviceName: 'Netflix',
+        url: 'https://netflix.com/watch/123',
+        type: 'subscription',
+        quality: 'HD',
+        price: 15.99,
+        currency: 'USD',
+      },
+      {
+        serviceName: 'Amazon Prime Video',
+        url: 'https://primevideo.com/watch/123',
+        type: 'rent',
+        quality: '4K',
+        price: 4.99,
+        currency: 'USD',
+      },
+    ],
+  };
+
+  const mockTvShowContent: ContentData = {
+    id: '456',
+    title: 'Breaking Bad',
+    overview: 'A high school chemistry teacher diagnosed with inoperable lung cancer turns to manufacturing and selling methamphetamine.',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/tv-poster.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1920/tv-backdrop.jpg',
+    releaseYear: 2008,
+    genres: ['Crime', 'Drama', 'Thriller'],
+    rating: 9.5,
+    voteCount: 1800000,
+    contentRating: 'TV-MA',
+    cast: [
+      { id: '10', name: 'Bryan Cranston', character: 'Walter White', profilePath: '/bryan-cranston.jpg' },
+      { id: '11', name: 'Aaron Paul', character: 'Jesse Pinkman', profilePath: '/aaron-paul.jpg' },
+    ],
+    crew: [
+      { id: '12', name: 'Vince Gilligan', job: 'Creator', profilePath: '/vince-gilligan.jpg' },
+    ],
+    streamingOptions: [],
+  };
+
+  describe('generateContentMetadata', () => {
+    beforeEach(() => {
+      process.env.NEXT_PUBLIC_SITE_URL = 'https://streamvpn.com';
+    });
+
+    it('should generate comprehensive metadata for movies', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.title).toContain('The Dark Knight');
+      expect(metadata.title).toContain('(2008)');
+      expect(metadata.title).toContain('Movie');
+      expect(metadata.title).toContain('StreamVPN');
+
+      expect(metadata.description).toContain('When the menace known as the Joker');
+      expect(metadata.description).toContain('Available on 2 streaming platforms');
+      // Rating might be truncated due to 160 character limit
+      expect(metadata.description.length).toBeLessThanOrEqual(160);
+
+      expect(metadata.keywords).toContain('The Dark Knight');
+      expect(metadata.keywords).toContain('movie, film, cinema');
+      expect(metadata.keywords).toContain('2008');
+      expect(metadata.keywords).toContain('action, crime, drama');
+      expect(metadata.keywords).toContain('Christian Bale, Heath Ledger, Aaron Eckhart');
+      expect(metadata.keywords).toContain('Christopher Nolan');
+      expect(metadata.keywords).toContain('Netflix, Amazon Prime Video');
+    });
+
+    it('should generate metadata for TV shows', async () => {
+      const metadata = await generateContentMetadata(mockTvShowContent, 'tv-show');
+
+      expect(metadata.title).toContain('Breaking Bad');
+      expect(metadata.title).toContain('TV Series');
+      expect(metadata.title).toContain('StreamVPN');
+
+      expect(metadata.description).toContain('A high school chemistry teacher');
+      expect(metadata.description).toContain('Find streaming options');
+
+      expect(metadata.keywords).toContain('tv show, series, television');
+      expect(metadata.keywords).toContain('Bryan Cranston, Aaron Paul');
+    });
+
+    it('should handle content without streaming options', async () => {
+      const metadata = await generateContentMetadata(mockTvShowContent, 'tv-show');
+
+      expect(metadata.title).toContain('StreamVPN');
+      // Check that description contains the ending text (might be truncated)
+      expect(metadata.description).toMatch(/Find streaming options and watch onl(ine\.?)?/);
+      expect(metadata.description.length).toBeLessThanOrEqual(160);
+    });
+
+    it('should generate proper OpenGraph metadata', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.openGraph).toBeDefined();
+      expect(metadata.openGraph?.type).toBe('video.movie');
+      expect(metadata.openGraph?.title).toContain('The Dark Knight');
+      expect(metadata.openGraph?.description).toContain('When the menace known as the Joker');
+      expect(metadata.openGraph?.siteName).toBe('StreamVPN');
+      expect(metadata.openGraph?.locale).toBe('en_US');
+
+      const images = metadata.openGraph?.images as any[];
+      expect(images).toHaveLength(3);
+      expect(images[0].url).toContain('/api/og');
+      expect(images[1].url).toBe(mockMovieContent.posterUrl);
+      expect(images[2].url).toBe(mockMovieContent.backdropUrl);
+    });
+
+    it('should generate Twitter Card metadata', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.twitter?.card).toBe('summary_large_image');
+      expect(metadata.twitter?.title).toContain('The Dark Knight');
+      expect(metadata.twitter?.creator).toBe('@StreamVPN');
+      expect(metadata.twitter?.site).toBe('@StreamVPN');
+    });
+
+    it('should include video-specific metadata for movies', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.openGraph?.type).toBe('video.movie');
+      expect((metadata.openGraph as any)?.releaseDate).toBe('2008-01-01');
+      expect((metadata.openGraph as any)?.genre).toEqual(['Action', 'Crime', 'Drama']);
+      expect((metadata.openGraph as any)?.actor).toEqual(['Christian Bale', 'Heath Ledger', 'Aaron Eckhart']);
+      expect((metadata.openGraph as any)?.director).toEqual(['Christopher Nolan']);
+      expect((metadata.openGraph as any)?.duration).toBe(9120); // 152 minutes * 60
+    });
+
+    it('should handle TV show specific metadata', async () => {
+      const metadata = await generateContentMetadata(mockTvShowContent, 'tv-show');
+
+      expect(metadata.openGraph?.type).toBe('video.tv_show');
+    });
+
+    it('should set proper robots configuration', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.robots).toEqual({
+        index: true,
+        follow: true,
+        googleBot: {
+          index: true,
+          follow: true,
+          'max-video-preview': -1,
+          'max-image-preview': 'large',
+          'max-snippet': -1,
+        },
+      });
+    });
+
+    it('should truncate long titles for Twitter', async () => {
+      const longTitleContent = {
+        ...mockMovieContent,
+        title: 'This Is A Very Long Movie Title That Should Be Truncated For Twitter Cards Because It Exceeds The Character Limit',
+      };
+
+      const metadata = await generateContentMetadata(longTitleContent, 'movie');
+      expect(metadata.twitter?.title?.length).toBeLessThanOrEqual(70);
+      expect(metadata.twitter?.title).toContain('...');
+    });
+
+    it('should truncate long descriptions for Twitter', async () => {
+      const longDescContent = {
+        ...mockMovieContent,
+        overview: 'This is a very long movie description that should be truncated for Twitter cards because it exceeds the character limit. '.repeat(5),
+      };
+
+      const metadata = await generateContentMetadata(longDescContent, 'movie');
+      expect(metadata.twitter?.description?.length).toBeLessThanOrEqual(160);
+      expect(metadata.twitter?.description).toContain('...');
+    });
+
+    it('should handle missing optional fields gracefully', async () => {
+      const minimalContent: ContentData = {
+        id: '789',
+        title: 'Minimal Movie',
+      };
+
+      const metadata = await generateContentMetadata(minimalContent, 'movie');
+
+      expect(metadata.title).toContain('Minimal Movie');
+      expect(metadata.description).toContain('Find streaming options and watch online');
+      expect(metadata.keywords).toContain('Minimal Movie');
+    });
+
+    it('should include app links when streaming options exist', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.appLinks).toBeDefined();
+      expect(metadata.appLinks?.web?.url).toContain('/content/movie/');
+    });
+
+    it('should not include app links when no streaming options', async () => {
+      const metadata = await generateContentMetadata(mockTvShowContent, 'tv-show');
+
+      expect(metadata.appLinks).toBeUndefined();
+    });
+  });
+
+  describe('generateMetaTags', () => {
+    it('should generate HTML meta tags for movies', () => {
+      const metaTags = generateMetaTags(mockMovieContent, 'movie');
+
+      expect(metaTags).toContain('<meta name="description"');
+      expect(metaTags).toContain('<meta name="keywords"');
+      expect(metaTags).toContain('<meta property="og:type" content="video.movie"');
+      expect(metaTags).toContain('<meta property="og:title" content="The Dark Knight"');
+      expect(metaTags).toContain('<meta property="og:image"');
+      expect(metaTags).toContain('<meta property="video:release_date" content="2008-01-01"');
+      expect(metaTags).toContain('<meta property="video:duration" content="9120"');
+      expect(metaTags).toContain('<meta name="twitter:card" content="summary_large_image"');
+    });
+
+    it('should generate HTML meta tags for TV shows', () => {
+      const metaTags = generateMetaTags(mockTvShowContent, 'tv-show');
+
+      expect(metaTags).toContain('<meta property="og:type" content="video.tv_show"');
+      expect(metaTags).toContain('Breaking Bad');
+    });
+
+    it('should handle content without poster images', () => {
+      const contentWithoutPoster = {
+        ...mockMovieContent,
+        posterUrl: undefined,
+      };
+
+      const metaTags = generateMetaTags(contentWithoutPoster, 'movie');
+
+      expect(metaTags).not.toContain('<meta property="og:image"');
+      expect(metaTags).not.toContain('<meta name="twitter:image"');
+    });
+
+    it('should handle content without runtime', () => {
+      const contentWithoutRuntime = {
+        ...mockMovieContent,
+        runtime: undefined,
+      };
+
+      const metaTags = generateMetaTags(contentWithoutRuntime, 'movie');
+
+      expect(metaTags).not.toContain('<meta property="video:duration"');
+    });
+  });
+
+  describe('edge cases and error handling', () => {
+    it('should handle very short titles', async () => {
+      const shortTitleContent = { ...mockMovieContent, title: 'It' };
+      const metadata = await generateContentMetadata(shortTitleContent, 'movie');
+
+      expect(metadata.title).toContain('It');
+      expect(metadata.title.length).toBeGreaterThan(10);
+    });
+
+    it('should handle content with no genres', async () => {
+      const noGenresContent = { ...mockMovieContent, genres: [] };
+      const metadata = await generateContentMetadata(noGenresContent, 'movie');
+
+      expect(metadata.keywords).not.toContain('undefined');
+      expect(metadata.openGraph).toBeDefined();
+    });
+
+    it('should handle content with no cast or crew', async () => {
+      const noCastContent = { ...mockMovieContent, cast: [], crew: [] };
+      const metadata = await generateContentMetadata(noCastContent, 'movie');
+
+      expect(metadata.keywords).not.toContain('undefined');
+      expect((metadata.openGraph as any)?.actor).toBeUndefined();
+      expect((metadata.openGraph as any)?.director).toBeUndefined();
+    });
+
+    it('should handle zero ratings gracefully', async () => {
+      const zeroRatingContent = { ...mockMovieContent, rating: 0, voteCount: 0 };
+      const metadata = await generateContentMetadata(zeroRatingContent, 'movie');
+
+      expect(metadata.title).not.toContain('0.0/10');
+      expect(metadata.description).not.toContain('Rated 0.0/10');
+    });
+
+    it('should handle null/undefined streaming options', async () => {
+      const noStreamingContent = { ...mockMovieContent, streamingOptions: undefined };
+      const metadata = await generateContentMetadata(noStreamingContent, 'movie');
+
+      expect(metadata.description).toContain('Find streaming options');
+      expect(metadata.title).toContain('StreamVPN');
+    });
+  });
+});

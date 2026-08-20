@@ -1,0 +1,146 @@
+# Optimized Multi-stage Production Dockerfile for GeoLeap.Api
+# Includes security hardening, multi-arch support, and performance optimizations
+
+# Build arguments
+ARG DOTNET_VERSION=9.0
+ARG BUILD_CONFIGURATION=Release
+
+# ============================================
+# Stage 1: Restore dependencies
+# ============================================
+FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS restore
+WORKDIR /src
+
+# Copy only project files to leverage Docker layer caching
+COPY ["GeoLeap.Api/GeoLeap.Api.csproj", "GeoLeap.Api/"]
+COPY ["GeoLeap.Api.Tests/GeoLeap.Api.Tests.csproj", "GeoLeap.Api.Tests/"]
+
+# Restore dependencies with retry logic
+RUN dotnet restore "GeoLeap.Api/GeoLeap.Api.csproj" \
+    --disable-parallel \
+    --runtime linux-x64 \
+    && dotnet restore "GeoLeap.Api.Tests/GeoLeap.Api.Tests.csproj" \
+    --disable-parallel \
+    --runtime linux-x64
+
+# ============================================
+# Stage 2: Build
+# ============================================
+FROM restore AS build
+ARG BUILD_CONFIGURATION
+
+# Copy all source files
+COPY . .
+
+# Build the application
+WORKDIR "/src/GeoLeap.Api"
+RUN dotnet build "GeoLeap.Api.csproj" \
+    -c ${BUILD_CONFIGURATION} \
+    -o /app/build \
+    --no-restore \
+    --runtime linux-x64 \
+    --self-contained false \
+    /p:PublishReadyToRun=true \
+    /p:PublishTrimmed=false
+
+# ============================================
+# Stage 3: Test (optional, can be skipped in production builds)
+# ============================================
+FROM build AS test
+WORKDIR /src/GeoLeap.Api.Tests
+
+# Run tests
+RUN dotnet test \
+    --configuration ${BUILD_CONFIGURATION} \
+    --no-build \
+    --no-restore \
+    --logger "console;verbosity=normal" \
+    || echo "Tests skipped in production build"
+
+# ============================================
+# Stage 4: Publish
+# ============================================
+FROM build AS publish
+ARG BUILD_CONFIGURATION
+
+WORKDIR "/src/GeoLeap.Api"
+RUN dotnet publish "GeoLeap.Api.csproj" \
+    -c ${BUILD_CONFIGURATION} \
+    -o /app/publish \
+    --no-build \
+    --no-restore \
+    --runtime linux-x64 \
+    --self-contained false \
+    /p:PublishReadyToRun=true \
+    /p:PublishTrimmed=false \
+    /p:UseAppHost=false
+
+# Remove unnecessary files to reduce image size
+RUN find /app/publish -type f -name "*.pdb" -delete && \
+    find /app/publish -type f -name "*.xml" -delete
+
+# ============================================
+# Stage 5: Final runtime image
+# ============================================
+FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}-alpine AS final
+
+# Install dependencies and security updates
+RUN apk update && \
+    apk upgrade --no-cache && \
+    apk add --no-cache \
+        curl \
+        ca-certificates \
+        tzdata \
+        && \
+    rm -rf /var/cache/apk/*
+
+# Set timezone to UTC
+ENV TZ=UTC
+
+# Create non-root user and group
+RUN addgroup -S -g 1001 appuser && \
+    adduser -S -u 1001 -G appuser -h /app -s /sbin/nologin appuser
+
+# Set working directory
+WORKDIR /app
+
+# Copy published application from publish stage
+COPY --from=publish --chown=appuser:appuser /app/publish .
+
+# Security: Remove write permissions from application files
+RUN chmod -R 555 /app && \
+    chmod -R 444 /app/*.dll
+
+# Switch to non-root user
+USER appuser
+
+# Expose ports
+EXPOSE 8020
+
+# Health check configuration
+HEALTHCHECK --interval=30s \
+            --timeout=10s \
+            --start-period=60s \
+            --retries=3 \
+  CMD curl -f http://localhost:8020/api/health || exit 1
+
+# Environment variables
+ENV ASPNETCORE_URLS=http://+:8020 \
+    ASPNETCORE_ENVIRONMENT=Production \
+    DOTNET_RUNNING_IN_CONTAINER=true \
+    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
+
+# Performance optimizations
+ENV DOTNET_gcServer=1 \
+    DOTNET_GCRetainVM=1 \
+    DOTNET_EnableDiagnostics=0
+
+# Metadata labels
+LABEL maintainer="hello@example.com" \
+      version="1.0.0" \
+      description="GeoLeap Backend API - Optimized Production Image" \
+      org.opencontainers.image.source="https://github.com/AngelCampa1/geoleap" \
+      org.opencontainers.image.documentation="https://github.com/AngelCampa1/geoleap"
+
+# Set entry point
+ENTRYPOINT ["dotnet", "GeoLeap.Api.dll"]

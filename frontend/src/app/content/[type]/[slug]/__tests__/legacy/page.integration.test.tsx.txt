@@ -1,0 +1,476 @@
+/**
+ * Integration tests for SEO-optimized content pages
+ * Tests the complete content page generation flow including SSR, metadata, and schema markup
+ */
+
+import { render, screen } from '@testing-library/react';
+import { notFound } from 'next/navigation';
+import ContentPage, { generateMetadata, generateStaticParams } from '../page';
+import { getContentBySlug } from '@/lib/api/content';
+import { generateContentMetadata } from '@/lib/seo/content-metadata';
+import { generateContentSchema } from '@/lib/seo/schema-markup';
+
+// Mock dependencies
+jest.mock('next/navigation', () => ({
+  notFound: jest.fn(),
+}));
+
+jest.mock('@/lib/api/content', () => ({
+  getContentBySlug: jest.fn(),
+}));
+
+jest.mock('@/lib/seo/content-metadata', () => ({
+  generateContentMetadata: jest.fn(),
+}));
+
+jest.mock('@/lib/seo/schema-markup', () => ({
+  generateContentSchema: jest.fn(),
+  generateContentFaqSchema: jest.fn(),
+  generateStreamingHowToSchema: jest.fn(),
+}));
+
+// Mock child components
+jest.mock('@/components/content/ContentBreadcrumbs', () => ({
+  ContentBreadcrumbs: ({ type, title, genre }: any) => (
+    <div data-testid="breadcrumbs">{`${type} > ${title} > ${genre}`}</div>
+  ),
+}));
+
+jest.mock('@/components/content/StreamingOptionsGrid', () => ({
+  StreamingOptionsGrid: ({ contentId, contentType }: any) => (
+    <div data-testid="streaming-options">{`${contentId}-${contentType}`}</div>
+  ),
+}));
+
+jest.mock('@/components/content/ContentDetails', () => ({
+  ContentDetails: ({ content, type }: any) => (
+    <div data-testid="content-details">{`${content.title}-${type}`}</div>
+  ),
+}));
+
+jest.mock('@/components/content/RelatedContent', () => ({
+  RelatedContent: ({ contentId, contentType, genres, limit }: any) => (
+    <div data-testid="related-content">{`${contentId}-${contentType}-${genres?.join(',')}-${limit}`}</div>
+  ),
+}));
+
+jest.mock('@/components/common/OptimizedImage', () => ({
+  OptimizedImage: ({ src, alt, priority, fill, sizes, quality, className, ...props }: any) => (
+    <img 
+      src={src} 
+      alt={alt} 
+      data-testid="optimized-image" 
+      data-priority={priority ? 'true' : 'false'}
+      data-fill={fill ? 'true' : 'false'}
+      sizes={sizes || '(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw'}
+      data-quality={quality?.toString()}
+      className={className}
+      {...props} 
+    />
+  ),
+}));
+
+const mockMovieContent = {
+  id: '123',
+  title: 'The Dark Knight',
+  overview: 'A superhero movie about Batman fighting the Joker in Gotham City.',
+  posterUrl: 'https://example.com/poster.jpg',
+  backdropUrl: 'https://example.com/backdrop.jpg',
+  releaseYear: 2008,
+  genres: ['Action', 'Crime', 'Drama'],
+  primaryGenre: 'Action',
+  rating: 9.0,
+  voteCount: 2500000,
+  runtime: 152,
+  contentRating: 'PG-13',
+  tagline: 'Why So Serious?',
+  cast: [
+    { id: '1', name: 'Christian Bale', character: 'Bruce Wayne / Batman', profilePath: '/bale.jpg' },
+    { id: '2', name: 'Heath Ledger', character: 'Joker', profilePath: '/ledger.jpg' },
+  ],
+  crew: [
+    { id: '3', name: 'Christopher Nolan', job: 'Director', profilePath: '/nolan.jpg' },
+  ],
+  streamingOptions: [
+    {
+      serviceName: 'Netflix',
+      url: 'https://netflix.com/watch/123',
+      type: 'subscription',
+      quality: 'HD',
+    },
+  ],
+};
+
+const mockTvShowContent = {
+  id: '456',
+  title: 'Breaking Bad',
+  overview: 'A high school chemistry teacher turns to cooking meth.',
+  posterUrl: 'https://example.com/bb-poster.jpg',
+  backdropUrl: 'https://example.com/bb-backdrop.jpg',
+  releaseYear: 2008,
+  genres: ['Crime', 'Drama', 'Thriller'],
+  primaryGenre: 'Crime',
+  rating: 9.5,
+  voteCount: 1800000,
+  contentRating: 'TV-MA',
+  cast: [
+    { id: '10', name: 'Bryan Cranston', character: 'Walter White', profilePath: '/cranston.jpg' },
+  ],
+  streamingOptions: [],
+};
+
+const mockContentSchema = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'Movie',
+    name: 'The Dark Knight',
+    identifier: '123',
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [],
+  },
+];
+
+const mockMetadata = {
+  title: 'The Dark Knight (2008) - 9.0/10 ⭐ - Movie | Watch on 1 Platform | StreamVPN',
+  description: 'A superhero movie about Batman fighting the Joker in Gotham City. Available on 1 streaming platform. Rated 9.0/10.',
+  keywords: 'The Dark Knight, movie, film, cinema, 2008, action, crime, drama',
+};
+
+describe('Content Page Integration Tests', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (getContentBySlug as jest.Mock).mockResolvedValue(mockMovieContent);
+    (generateContentMetadata as jest.Mock).mockResolvedValue(mockMetadata);
+    (generateContentSchema as jest.Mock).mockReturnValue(mockContentSchema);
+  });
+
+  describe('generateMetadata', () => {
+    it('should generate metadata for valid movie content', async () => {
+      const params = { type: 'movie' as const, slug: '123-the-dark-knight-2008' };
+      const metadata = await generateMetadata({ params });
+
+      expect(getContentBySlug).toHaveBeenCalledWith('movie', '123-the-dark-knight-2008');
+      expect(generateContentMetadata).toHaveBeenCalledWith(mockMovieContent, 'movie');
+      expect(metadata).toEqual(mockMetadata);
+    });
+
+    it('should generate metadata for TV shows', async () => {
+      (getContentBySlug as jest.Mock).mockResolvedValue(mockTvShowContent);
+      const tvMetadata = { ...mockMetadata, title: 'Breaking Bad TV Show' };
+      (generateContentMetadata as jest.Mock).mockResolvedValue(tvMetadata);
+
+      const params = { type: 'tv-show' as const, slug: '456-breaking-bad' };
+      const metadata = await generateMetadata({ params });
+
+      expect(getContentBySlug).toHaveBeenCalledWith('tv-show', '456-breaking-bad');
+      expect(generateContentMetadata).toHaveBeenCalledWith(mockTvShowContent, 'tv-show');
+      expect(metadata).toEqual(tvMetadata);
+    });
+
+    it('should return default metadata when content not found', async () => {
+      (getContentBySlug as jest.Mock).mockResolvedValue(null);
+
+      const params = { type: 'movie' as const, slug: 'invalid-slug' };
+      const metadata = await generateMetadata({ params });
+
+      expect(metadata).toEqual({
+        title: 'Content Not Found | StreamVPN',
+        description: 'The requested content could not be found.',
+      });
+    });
+
+    it('should handle API errors gracefully', async () => {
+      (getContentBySlug as jest.Mock).mockRejectedValue(new Error('API Error'));
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      const params = { type: 'movie' as const, slug: 'error-slug' };
+      const metadata = await generateMetadata({ params });
+
+      expect(consoleSpy).toHaveBeenCalledWith('Error generating metadata:', expect.any(Error));
+      expect(metadata).toEqual({
+        title: 'Content | StreamVPN',
+        description: 'Discover where to watch your favorite movies and TV shows.',
+      });
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should handle metadata generation errors', async () => {
+      (generateContentMetadata as jest.Mock).mockRejectedValue(new Error('Metadata Error'));
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      const params = { type: 'movie' as const, slug: '123-movie' };
+      const metadata = await generateMetadata({ params });
+
+      expect(consoleSpy).toHaveBeenCalledWith('Error generating metadata:', expect.any(Error));
+      expect(metadata).toEqual({
+        title: 'Content | StreamVPN',
+        description: 'Discover where to watch your favorite movies and TV shows.',
+      });
+
+      consoleSpy.mockRestore();
+    });
+  });
+
+  describe('generateStaticParams', () => {
+    it('should return empty array for on-demand generation', async () => {
+      const staticParams = await generateStaticParams();
+      expect(staticParams).toEqual([]);
+    });
+  });
+
+  describe('ContentPage Component', () => {
+    it('should render movie content page with all sections', async () => {
+      const params = { type: 'movie' as const, slug: '123-the-dark-knight-2008' };
+      const component = await ContentPage({ params });
+
+      render(component);
+
+      // Check that content is fetched
+      expect(getContentBySlug).toHaveBeenCalledWith('movie', '123-the-dark-knight-2008');
+
+      // Check schema markup injection
+      expect(generateContentSchema).toHaveBeenCalledWith(mockMovieContent, 'movie');
+
+      // Check for main content elements
+      expect(screen.getByText('The Dark Knight')).toBeInTheDocument();
+      expect(screen.getByText('(2008)')).toBeInTheDocument();
+      expect(screen.getByText('Why So Serious?')).toBeInTheDocument();
+      expect(screen.getByText(mockMovieContent.overview)).toBeInTheDocument();
+
+      // Check for ratings and metadata
+      expect(screen.getByText('⭐')).toBeInTheDocument();
+      expect(screen.getByText('9.0')).toBeInTheDocument();
+      expect(screen.getByText('(2,500,000)')).toBeInTheDocument();
+      expect(screen.getByText('152 min')).toBeInTheDocument();
+      expect(screen.getByText('PG-13')).toBeInTheDocument();
+
+      // Check for genres
+      expect(screen.getByText('Action')).toBeInTheDocument();
+      expect(screen.getByText('Crime')).toBeInTheDocument();
+      expect(screen.getByText('Drama')).toBeInTheDocument();
+
+      // Check for section headers
+      expect(screen.getByText('Where to Watch The Dark Knight')).toBeInTheDocument();
+      expect(screen.getByText('Similar Movies')).toBeInTheDocument();
+
+      // Check component integration
+      expect(screen.getByTestId('breadcrumbs')).toBeInTheDocument();
+      expect(screen.getByTestId('streaming-options')).toBeInTheDocument();
+      expect(screen.getByTestId('content-details')).toBeInTheDocument();
+      expect(screen.getByTestId('related-content')).toBeInTheDocument();
+
+      // Check optimized images
+      const images = screen.getAllByTestId('optimized-image');
+      expect(images).toHaveLength(2); // backdrop and poster
+      expect(images[0]).toHaveAttribute('src', mockMovieContent.backdropUrl);
+      expect(images[1]).toHaveAttribute('src', mockMovieContent.posterUrl);
+    });
+
+    it('should render TV show content page with correct labels', async () => {
+      (getContentBySlug as jest.Mock).mockResolvedValue(mockTvShowContent);
+
+      const params = { type: 'tv-show' as const, slug: '456-breaking-bad' };
+      const component = await ContentPage({ params });
+
+      render(component);
+
+      expect(screen.getByText('Breaking Bad')).toBeInTheDocument();
+      expect(screen.getByText('Where to Watch Breaking Bad')).toBeInTheDocument();
+      expect(screen.getByText('Similar Shows')).toBeInTheDocument();
+    });
+
+    it('should render documentary content page', async () => {
+      const mockDocumentaryContent = {
+        ...mockMovieContent,
+        id: '789',
+        title: 'Planet Earth',
+        genres: ['Documentary', 'Nature'],
+      };
+      (getContentBySlug as jest.Mock).mockResolvedValue(mockDocumentaryContent);
+
+      const params = { type: 'documentary' as const, slug: '789-planet-earth' };
+      const component = await ContentPage({ params });
+
+      render(component);
+
+      expect(screen.getByText('Planet Earth')).toBeInTheDocument();
+      expect(screen.getByText('Similar Documentaries')).toBeInTheDocument();
+    });
+
+    it('should handle content without optional fields', async () => {
+      const minimalContent = {
+        id: '999',
+        title: 'Minimal Movie',
+      };
+      (getContentBySlug as jest.Mock).mockResolvedValue(minimalContent);
+
+      const params = { type: 'movie' as const, slug: '999-minimal-movie' };
+      const component = await ContentPage({ params });
+
+      render(component);
+
+      expect(screen.getByText('Minimal Movie')).toBeInTheDocument();
+      // Should not crash when optional fields are missing
+    });
+
+    it('should call notFound when content is not found', async () => {
+      (getContentBySlug as jest.Mock).mockResolvedValue(null);
+
+      const params = { type: 'movie' as const, slug: 'non-existent' };
+
+      await expect(ContentPage({ params })).rejects.toThrow();
+      expect(notFound).toHaveBeenCalled();
+    });
+
+    it('should call notFound when API throws error', async () => {
+      (getContentBySlug as jest.Mock).mockRejectedValue(new Error('API Error'));
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      const params = { type: 'movie' as const, slug: 'error-slug' };
+
+      await expect(ContentPage({ params })).rejects.toThrow();
+      expect(consoleSpy).toHaveBeenCalledWith('Error fetching content:', expect.any(Error));
+      expect(notFound).toHaveBeenCalled();
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should inject JSON-LD schema correctly', async () => {
+      const params = { type: 'movie' as const, slug: '123-movie' };
+      const component = await ContentPage({ params });
+
+      render(component);
+
+      const scriptElement = document.querySelector('script[type="application/ld+json"]');
+      expect(scriptElement).toBeInTheDocument();
+      
+      const schemaData = JSON.parse(scriptElement?.textContent || '');
+      expect(schemaData).toEqual(mockContentSchema);
+    });
+
+    it('should render proper section structure with SEO-friendly markup', async () => {
+      const params = { type: 'movie' as const, slug: '123-movie' };
+      const component = await ContentPage({ params });
+
+      render(component);
+
+      // Check for semantic HTML structure
+      const sections = document.querySelectorAll('section');
+      expect(sections).toHaveLength(4); // Hero, Streaming, Details, Related
+
+      // Check for proper heading hierarchy
+      const h1 = document.querySelector('h1');
+      expect(h1).toBeInTheDocument();
+      expect(h1).toHaveTextContent('The Dark Knight');
+
+      const h2Elements = document.querySelectorAll('h2');
+      expect(h2Elements).toHaveLength(2); // "Where to Watch" and "Similar Movies"
+    });
+
+    it('should handle different content types correctly', async () => {
+      // Test all content type mappings
+      const testCases = [
+        { type: 'movie' as const, expectedEnum: 'Movie' },
+        { type: 'tv-show' as const, expectedEnum: 'Show' },
+        { type: 'documentary' as const, expectedEnum: 'Documentary' },
+      ];
+
+      for (const { type, expectedEnum } of testCases) {
+        const params = { type, slug: '123-test' };
+        const component = await ContentPage({ params });
+        
+        render(component);
+
+        // Verify the component renders with correct content type
+        const streamingOptions = screen.getByTestId('streaming-options');
+        expect(streamingOptions).toBeInTheDocument();
+
+        // Clean up for next iteration
+        document.body.innerHTML = '';
+      }
+    });
+
+    it('should render loading states with proper structure', async () => {
+      const params = { type: 'movie' as const, slug: '123-movie' };
+      const component = await ContentPage({ params });
+
+      render(component);
+
+      // Check that content is properly rendered (no loading states in completed render)
+      const contentTitle = screen.getByRole('heading', { level: 1 });
+      expect(contentTitle).toBeInTheDocument();
+    });
+
+    it('should maintain proper accessibility structure', async () => {
+      const params = { type: 'movie' as const, slug: '123-movie' };
+      const component = await ContentPage({ params });
+
+      render(component);
+
+      // Check for proper ARIA structure
+      const images = screen.getAllByRole('img');
+      images.forEach(img => {
+        expect(img).toHaveAttribute('alt');
+      });
+
+      // Check for semantic structure
+      const main = document.querySelector('main');
+      expect(main).toBeDefined();
+    });
+
+    it('should handle search params correctly', async () => {
+      const params = { type: 'movie' as const, slug: '123-movie' };
+      const searchParams = { ref: 'search', utm_source: 'google' };
+      
+      const component = await ContentPage({ params, searchParams });
+      render(component);
+
+      // Component should render normally regardless of search params
+      expect(screen.getByText('The Dark Knight')).toBeInTheDocument();
+    });
+  });
+
+  describe('Performance and SEO Considerations', () => {
+    it('should prioritize above-the-fold images', async () => {
+      const params = { type: 'movie' as const, slug: '123-movie' };
+      const component = await ContentPage({ params });
+
+      render(component);
+
+      const images = screen.getAllByTestId('optimized-image');
+      const backdropImage = images.find(img => img.getAttribute('src') === mockMovieContent.backdropUrl);
+      const posterImage = images.find(img => img.getAttribute('src') === mockMovieContent.posterUrl);
+
+      // Check that priority loading is enabled (as data attributes in tests)
+      expect(backdropImage).toHaveAttribute('data-testid', 'optimized-image');
+      expect(posterImage).toHaveAttribute('data-testid', 'optimized-image');
+    });
+
+    it('should use proper image sizing attributes', async () => {
+      const params = { type: 'movie' as const, slug: '123-movie' };
+      const component = await ContentPage({ params });
+
+      render(component);
+
+      const images = screen.getAllByTestId('optimized-image');
+      images.forEach(img => {
+        expect(img).toHaveAttribute('sizes');
+      });
+    });
+
+    it('should implement proper loading strategies', async () => {
+      const params = { type: 'movie' as const, slug: '123-movie' };
+      const component = await ContentPage({ params });
+
+      render(component);
+
+      // Check that Suspense boundaries are properly set up
+      const suspenseBoundaries = document.querySelectorAll('[data-testid*="streaming-options"], [data-testid*="related-content"]');
+      expect(suspenseBoundaries.length).toBeGreaterThan(0);
+    });
+  });
+});

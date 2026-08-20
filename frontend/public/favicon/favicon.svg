@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <!-- Outer globe circle -->
+  <circle cx="128" cy="118" r="88" stroke="#7c3aed" stroke-width="6" fill="none"/>
+  <!-- Central longitude ellipse -->
+  <ellipse cx="128" cy="118" rx="44" ry="88" stroke="#7c3aed" stroke-width="3.5" fill="none" opacity="0.55"/>
+  <!-- Upper latitude arc -->
+  <ellipse cx="128" cy="88" rx="70" ry="18" stroke="#7c3aed" stroke-width="3" fill="none" opacity="0.5"/>
+  <!-- Lower latitude arc -->
+  <ellipse cx="128" cy="148" rx="70" ry="18" stroke="#7c3aed" stroke-width="3" fill="none" opacity="0.4"/>
+  <!-- Play triangle - golden, centered on globe -->
+  <polygon points="114,103 114,133 146,118" fill="#f59e0b"/>
+  <!-- Leap arc - electric cyan, below globe -->
+  <path d="M54 216 Q128 248 202 216" stroke="#06b6d4" stroke-width="5.5" fill="none" stroke-linecap="round"/>
+  <!-- Cyan arc end dots for polish -->
+  <circle cx="54" cy="216" r="4" fill="#06b6d4"/>
+  <circle cx="202" cy="216" r="4" fill="#06b6d4"/>
+</svg>

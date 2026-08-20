@@ -1,0 +1,44 @@
+{
+  "name": "seo-testing-suite",
+  "version": "1.0.0",
+  "description": "Comprehensive SEO testing framework for GeoLeap content pages",
+  "main": "index.js",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:technical": "playwright test technical-seo.test.js",
+    "test:performance": "playwright test performance-seo.test.js",
+    "test:accessibility": "playwright test accessibility-seo.test.js",
+    "test:mobile": "playwright test mobile-responsive-seo.test.js",
+    "test:crawler": "playwright test crawler-seo.test.js",
+    "test:conversion": "playwright test conversion-ab-testing.test.js",
+    "test:regression": "playwright test performance-regression.test.js",
+    "audit:full": "npm run test && npm run lighthouse:audit && npm run axe:audit",
+    "lighthouse:audit": "lighthouse-ci autorun",
+    "axe:audit": "axe-cli http://localhost:3000",
+    "report:generate": "node generate-seo-report.js",
+    "ci:test": "npm run test -- --reporter=junit",
+    "setup": "playwright install"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0",
+    "axe-playwright": "^2.0.0",
+    "lighthouse": "^11.0.0",
+    "lighthouse-ci": "^0.12.0",
+    "axe-cli": "^4.8.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  },
+  "keywords": [
+    "seo",
+    "testing",
+    "playwright",
+    "lighthouse",
+    "accessibility",
+    "performance"
+  ],
+  "author": "GeoLeap SEO Team",
+  "license": "MIT"
+}

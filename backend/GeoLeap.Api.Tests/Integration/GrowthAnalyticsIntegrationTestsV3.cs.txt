@@ -1,0 +1,558 @@
+using GeoLeap.Api.Controllers;
+using GeoLeap.Api.Models.GrowthAnalytics;
+using GeoLeap.Api.Services.GrowthAnalytics;
+using GeoLeap.Api.Tests.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
+using Newtonsoft.Json;
+using NSubstitute;
+using System.Text;
+using Xunit;
+
+namespace GeoLeap.Api.Tests.Integration;
+
+[Collection("MinimalTest")]
+public class GrowthAnalyticsIntegrationTestsV3 : IClassFixture<MinimalWebApplicationFactory>
+{
+    private readonly HttpClient _client;
+    private readonly MinimalWebApplicationFactory _factory;
+    private readonly IGrowthTrackingService _mockTrackingService;
+    private readonly IAttributionService _mockAttributionService;
+
+    public GrowthAnalyticsIntegrationTestsV3(MinimalWebApplicationFactory factory)
+    {
+        _factory = factory;
+        _client = factory.CreateClient();
+        
+        // Set up authentication for integration tests
+        _client.DefaultRequestHeaders.Authorization = 
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "integration-test-token");
+
+        // Get mock services for comprehensive setup
+        _mockTrackingService = _factory.Services.GetRequiredService<IGrowthTrackingService>();
+        _mockAttributionService = _factory.Services.GetRequiredService<IAttributionService>();
+        
+        SetupComprehensiveMocks();
+    }
+
+    [Fact]
+    public async Task CompleteUserJourney_TrackingToAttribution_ReturnsSuccess()
+    {
+        // Arrange - Complete user journey scenario
+        var userId = "integration-user-001";
+        var sessionId = "integration-session-001";
+        
+        // Step 1: Track page view (awareness)
+        var pageViewEvent = CreateEventRequest("page_view", "engagement", userId, sessionId);
+        
+        // Step 2: Track button click (consideration)
+        var clickEvent = CreateEventRequest("button_click", "interaction", userId, sessionId);
+        
+        // Step 3: Track purchase (conversion)
+        var purchaseEvent = CreateEventRequest("purchase", "conversion", userId, sessionId, 99.99m);
+
+        // Mock the tracking to return success
+        _mockTrackingService.TrackEventAsync(Arg.Any<GrowthEvent>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
+
+        // Mock attribution calculation
+        var mockAttribution = new AttributionResult
+        {
+            ConversionEventId = Guid.NewGuid(),
+            TotalAttribution = 1.0m,
+            Touchpoints = new List<AttributionTouch>
+            {
+                new() { Channel = "organic_search", Attribution = 0.4m },
+                new() { Channel = "email", Attribution = 0.3m },
+                new() { Channel = "direct", Attribution = 0.3m }
+            }
+        };
+        _mockAttributionService.CalculateAttributionAsync(Arg.Any<Guid>(), Arg.Any<Guid?>())
+            .Returns(Task.FromResult(mockAttribution));
+
+        // Act & Assert - Track each event in the funnel
+        var pageViewResponse = await PostEventAsync(pageViewEvent);
+        Assert.True(IsSuccessStatusCode(pageViewResponse.StatusCode));
+
+        var clickResponse = await PostEventAsync(clickEvent);
+        Assert.True(IsSuccessStatusCode(clickResponse.StatusCode));
+
+        var purchaseResponse = await PostEventAsync(purchaseEvent);
+        Assert.True(IsSuccessStatusCode(purchaseResponse.StatusCode));
+
+        // Get attribution for the purchase
+        var conversionEventId = Guid.NewGuid();
+        var attributionResponse = await _client.GetAsync($"/api/GrowthAnalytics/attribution/{conversionEventId}");
+        Assert.True(IsSuccessStatusCode(attributionResponse.StatusCode));
+    }
+
+    [Fact]
+    public async Task BatchEventProcessing_HighVolume_HandlesLoad()
+    {
+        // Arrange - High volume batch processing test
+        const int batchSize = 100;
+        var events = new List<GrowthEventRequest>();
+        
+        for (int i = 0; i < batchSize; i++)
+        {
+            events.Add(CreateEventRequest(
+                eventName: $"batch_event_{i}",
+                category: "performance_test",
+                userId: $"batch-user-{i % 10}", // 10 different users
+                sessionId: $"batch-session-{i % 20}" // 20 different sessions
+            ));
+        }
+
+        _mockTrackingService.TrackEventsAsync(Arg.Any<IEnumerable<GrowthEvent>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(batchSize));
+
+        var json = JsonConvert.SerializeObject(events);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        // Act
+        var response = await _client.PostAsync("/api/GrowthAnalytics/events/batch", content);
+
+        // Assert
+        Assert.True(IsSuccessStatusCode(response.StatusCode));
+        
+        if (response.IsSuccessStatusCode)
+        {
+            var responseContent = await response.Content.ReadAsStringAsync();
+            var result = JsonConvert.DeserializeObject<dynamic>(responseContent);
+            Assert.NotNull(result);
+        }
+    }
+
+    [Fact]
+    public async Task AttributionModelComparison_MultipleModels_ReturnsComparison()
+    {
+        // Arrange - Attribution model comparison workflow
+        var startDate = DateTime.UtcNow.AddDays(-30);
+        var endDate = DateTime.UtcNow;
+        var modelIds = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+
+        var comparisonRequest = new AttributionComparisonRequest
+        {
+            StartDate = startDate,
+            EndDate = endDate,
+            ModelIds = modelIds
+        };
+
+        var mockComparison = new AttributionModelComparisonResult
+        {
+            StartDate = startDate,
+            EndDate = endDate,
+            Models = modelIds.Select((id, index) => new ModelComparisonSummary
+            {
+                ModelId = id,
+                ModelName = $"Model {index + 1}",
+                ModelType = (AttributionModelType)(index % 4),
+                TotalConversions = 100 + (index * 20),
+                TotalAttributedValue = 50000m + (index * 10000m)
+            }).ToList(),
+            ChannelComparisons = new List<ChannelComparisonResult>()
+        };
+
+        _mockAttributionService.CompareAttributionModelsAsync(
+            Arg.Any<DateTime>(), Arg.Any<DateTime>(), Arg.Any<IEnumerable<Guid>>())
+            .Returns(Task.FromResult(mockComparison));
+
+        var json = JsonConvert.SerializeObject(comparisonRequest);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        // Act
+        var response = await _client.PostAsync("/api/GrowthAnalytics/attribution/compare", content);
+
+        // Assert
+        Assert.True(IsSuccessStatusCode(response.StatusCode));
+        
+        if (response.IsSuccessStatusCode)
+        {
+            var responseContent = await response.Content.ReadAsStringAsync();
+            Assert.NotEmpty(responseContent);
+        }
+    }
+
+    [Fact]
+    public async Task ChannelPerformanceAnalysis_MultipleChannels_ReturnsMetrics()
+    {
+        // Arrange - Channel performance analysis
+        var startDate = DateTime.UtcNow.AddDays(-30);
+        var endDate = DateTime.UtcNow;
+
+        var mockPerformance = new List<ChannelPerformanceResult>
+        {
+            new()
+            {
+                Channel = "organic_search",
+                Source = "google",
+                Medium = "organic",
+                Conversions = 150,
+                AttributedValue = 75000m,
+                ConversionRate = 3.5m,
+                ReturnOnAdSpend = 0m
+            },
+            new()
+            {
+                Channel = "paid_search",
+                Source = "google",
+                Medium = "cpc",
+                Campaign = "brand_keywords",
+                Conversions = 100,
+                AttributedValue = 60000m,
+                ConversionRate = 5.2m,
+                CostPerConversion = 15.0m,
+                ReturnOnAdSpend = 4.0m
+            },
+            new()
+            {
+                Channel = "email",
+                Source = "newsletter",
+                Medium = "email",
+                Campaign = "weekly_digest",
+                Conversions = 80,
+                AttributedValue = 40000m,
+                ConversionRate = 8.0m,
+                ReturnOnAdSpend = 20.0m
+            }
+        };
+
+        _mockAttributionService.GetChannelPerformanceAsync(
+            Arg.Any<DateTime>(), Arg.Any<DateTime>(), Arg.Any<Guid?>())
+            .Returns(Task.FromResult<IEnumerable<ChannelPerformanceResult>>(mockPerformance));
+
+        // Act
+        var response = await _client.GetAsync(
+            $"/api/GrowthAnalytics/channels/performance?startDate={startDate:yyyy-MM-dd}&endDate={endDate:yyyy-MM-dd}");
+
+        // Assert
+        Assert.True(IsSuccessStatusCode(response.StatusCode));
+        
+        if (response.IsSuccessStatusCode)
+        {
+            var responseContent = await response.Content.ReadAsStringAsync();
+            var channels = JsonConvert.DeserializeObject<List<ChannelPerformanceResult>>(responseContent);
+            Assert.NotNull(channels);
+            Assert.True(channels.Count >= 3);
+        }
+    }
+
+    [Fact]
+    public async Task GdprComplianceWorkflow_DataDeletionAndAnonymization_ReturnsSuccess()
+    {
+        // Arrange - GDPR compliance workflow
+        var userId = "gdpr-test-user-001";
+
+        // Mock successful GDPR operations
+        _mockTrackingService.DeleteUserDataAsync(Arg.Any<string>())
+            .Returns(Task.FromResult(true));
+        _mockTrackingService.AnonymizeUserDataAsync(Arg.Any<string>())
+            .Returns(Task.FromResult(true));
+
+        // Act & Assert - Test data deletion
+        var deleteResponse = await _client.DeleteAsync($"/api/GrowthAnalytics/users/{userId}/data");
+        Assert.True(IsSuccessStatusCode(deleteResponse.StatusCode));
+
+        // Act & Assert - Test data anonymization
+        var anonymizeResponse = await _client.PostAsync($"/api/GrowthAnalytics/users/{userId}/anonymize", null);
+        Assert.True(IsSuccessStatusCode(anonymizeResponse.StatusCode));
+    }
+
+    [Fact]
+    public async Task UserJourneyAnalysis_CompleteJourney_ReturnsFullPath()
+    {
+        // Arrange - User journey analysis
+        var userId = "journey-user-001";
+        var conversionDate = DateTime.UtcNow;
+
+        var mockJourney = new List<AttributionTouch>
+        {
+            new()
+            {
+                Id = Guid.NewGuid(),
+                EventName = "page_view",
+                Channel = "organic_search",
+                Source = "google",
+                Medium = "organic",
+                Timestamp = conversionDate.AddDays(-10),
+                Attribution = 0.2m,
+                Position = 1,
+                PositionFromEnd = 4
+            },
+            new()
+            {
+                Id = Guid.NewGuid(),
+                EventName = "email_click",
+                Channel = "email",
+                Source = "newsletter",
+                Medium = "email",
+                Timestamp = conversionDate.AddDays(-7),
+                Attribution = 0.3m,
+                Position = 2,
+                PositionFromEnd = 3
+            },
+            new()
+            {
+                Id = Guid.NewGuid(),
+                EventName = "ad_click",
+                Channel = "paid_search",
+                Source = "google",
+                Medium = "cpc",
+                Timestamp = conversionDate.AddDays(-3),
+                Attribution = 0.3m,
+                Position = 3,
+                PositionFromEnd = 2
+            },
+            new()
+            {
+                Id = Guid.NewGuid(),
+                EventName = "direct_visit",
+                Channel = "direct",
+                Source = "direct",
+                Medium = "none",
+                Timestamp = conversionDate.AddDays(-1),
+                Attribution = 0.2m,
+                Position = 4,
+                PositionFromEnd = 1
+            }
+        };
+
+        _mockAttributionService.GetUserJourneyAsync(Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<int>())
+            .Returns(Task.FromResult(mockJourney));
+
+        // Act
+        var response = await _client.GetAsync(
+            $"/api/GrowthAnalytics/journey/{userId}?conversionDate={conversionDate:yyyy-MM-dd}&lookbackDays=30");
+
+        // Assert
+        Assert.True(IsSuccessStatusCode(response.StatusCode));
+        
+        if (response.IsSuccessStatusCode)
+        {
+            var responseContent = await response.Content.ReadAsStringAsync();
+            var journey = JsonConvert.DeserializeObject<List<AttributionTouch>>(responseContent);
+            Assert.NotNull(journey);
+            Assert.Equal(4, journey.Count);
+            Assert.Equal(1.0m, journey.Sum(t => t.Attribution)); // Total attribution should equal 1.0
+        }
+    }
+
+    [Fact]
+    public async Task ProcessingStatsMonitoring_ReturnsSystemHealth()
+    {
+        // Arrange - System monitoring and health check
+        var mockStats = new EventProcessingStats
+        {
+            TotalEvents = 50000,
+            ProcessedEvents = 49800,
+            PendingEvents = 200,
+            FailedEvents = 0,
+            EventsToday = 2500,
+            EventsThisHour = 150,
+            AvgProcessingTimeMs = 12.5,
+            LastProcessedAt = DateTime.UtcNow.AddMinutes(-1),
+            CategoryStats = new List<EventCategoryStats>
+            {
+                new() { Category = "engagement", Count = 25000, Percentage = 50.0m },
+                new() { Category = "conversion", Count = 15000, Percentage = 30.0m },
+                new() { Category = "revenue", Count = 10000, Percentage = 20.0m }
+            }
+        };
+
+        _mockTrackingService.GetProcessingStatsAsync()
+            .Returns(Task.FromResult(mockStats));
+
+        // Act
+        var response = await _client.GetAsync("/api/GrowthAnalytics/stats");
+
+        // Assert
+        Assert.True(IsSuccessStatusCode(response.StatusCode));
+        
+        if (response.IsSuccessStatusCode)
+        {
+            var responseContent = await response.Content.ReadAsStringAsync();
+            var stats = JsonConvert.DeserializeObject<EventProcessingStats>(responseContent);
+            Assert.NotNull(stats);
+            Assert.True(stats.TotalEvents > 0);
+            Assert.True(stats.ProcessedEvents > 0);
+            Assert.True(stats.AvgProcessingTimeMs > 0);
+        }
+    }
+
+    [Fact]
+    public async Task ErrorHandling_InvalidData_ReturnsAppropriateErrors()
+    {
+        // Arrange - Test error handling with invalid data
+        var invalidEvent = new GrowthEventRequest
+        {
+            EventName = "", // Invalid - required field
+            Category = "", // Invalid - required field
+            SessionId = "" // Invalid - required field
+        };
+
+        var json = JsonConvert.SerializeObject(invalidEvent);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        // Act
+        var response = await _client.PostAsync("/api/GrowthAnalytics/events", content);
+
+        // Assert - Should return validation error
+        Assert.Contains((int)response.StatusCode, new[] { 400, 422 });
+    }
+
+    [Fact]
+    public async Task ConcurrentRequests_MultipleEndpoints_HandlesLoad()
+    {
+        // Arrange - Concurrent request load test
+        var tasks = new List<Task<HttpResponseMessage>>();
+
+        // Create multiple concurrent requests to different endpoints
+        for (int i = 0; i < 10; i++)
+        {
+            var eventRequest = CreateEventRequest($"concurrent_event_{i}", "load_test", $"user_{i}", $"session_{i}");
+            tasks.Add(PostEventAsync(eventRequest));
+        }
+
+        for (int i = 0; i < 5; i++)
+        {
+            tasks.Add(_client.GetAsync("/api/GrowthAnalytics/stats"));
+        }
+
+        for (int i = 0; i < 3; i++)
+        {
+            var startDate = DateTime.UtcNow.AddDays(-30);
+            var endDate = DateTime.UtcNow;
+            tasks.Add(_client.GetAsync($"/api/GrowthAnalytics/attribution/summary?startDate={startDate:yyyy-MM-dd}&endDate={endDate:yyyy-MM-dd}"));
+        }
+
+        // Act
+        var responses = await Task.WhenAll(tasks);
+
+        // Assert - All requests should complete successfully or with expected errors
+        Assert.All(responses, response =>
+        {
+            Assert.True(IsSuccessStatusCode(response.StatusCode) || 
+                       IsExpectedErrorCode(response.StatusCode));
+        });
+    }
+
+    private async Task<HttpResponseMessage> PostEventAsync(GrowthEventRequest eventRequest)
+    {
+        var json = JsonConvert.SerializeObject(eventRequest);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+        return await _client.PostAsync("/api/GrowthAnalytics/events", content);
+    }
+
+    private static GrowthEventRequest CreateEventRequest(
+        string eventName, 
+        string category, 
+        string userId, 
+        string sessionId, 
+        decimal? eventValue = null)
+    {
+        return new GrowthEventRequest
+        {
+            EventName = eventName,
+            Category = category,
+            UserId = userId,
+            SessionId = sessionId,
+            ClientTimestamp = DateTime.UtcNow,
+            Properties = "{}",
+            UtmSource = "test-source",
+            UtmMedium = "test-medium",
+            UtmCampaign = "test-campaign",
+            Referrer = "https://example.com",
+            LandingPage = "https://app.example.com/home",
+            ScreenResolution = "1920x1080",
+            ViewportSize = "1200x800",
+            EventValue = eventValue,
+            Currency = eventValue.HasValue ? "USD" : null,
+            SdkVersion = "1.0.0",
+            HasConsent = true,
+            ConsentCategories = "analytics,marketing"
+        };
+    }
+
+    private static bool IsSuccessStatusCode(System.Net.HttpStatusCode statusCode)
+    {
+        return ((int)statusCode >= 200 && (int)statusCode <= 299);
+    }
+
+    private static bool IsExpectedErrorCode(System.Net.HttpStatusCode statusCode)
+    {
+        // Accept common error codes that indicate the system is working correctly
+        return new[] { 400, 401, 403, 404, 422 }.Contains((int)statusCode);
+    }
+
+    private void SetupComprehensiveMocks()
+    {
+        // Setup tracking service comprehensive mocks
+        _mockTrackingService.TrackEventAsync(Arg.Any<GrowthEvent>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
+
+        _mockTrackingService.TrackEventsAsync(Arg.Any<IEnumerable<GrowthEvent>>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(call.Arg<IEnumerable<GrowthEvent>>().Count()));
+
+        _mockTrackingService.EnrichEventAsync(Arg.Any<GrowthEvent>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(call => 
+            {
+                var evt = call.Arg<GrowthEvent>();
+                evt.IpAddress = call.Arg<string>();
+                evt.UserAgent = call.ArgAt<string>(2);
+                return Task.FromResult(evt);
+            });
+
+        _mockTrackingService.GetProcessingStatsAsync()
+            .Returns(Task.FromResult(new EventProcessingStats
+            {
+                TotalEvents = 1000,
+                ProcessedEvents = 950,
+                PendingEvents = 50,
+                FailedEvents = 0,
+                EventsToday = 100,
+                EventsThisHour = 10,
+                AvgProcessingTimeMs = 15.0,
+                LastProcessedAt = DateTime.UtcNow,
+                CategoryStats = new List<EventCategoryStats>()
+            }));
+
+        _mockTrackingService.DeleteUserDataAsync(Arg.Any<string>())
+            .Returns(Task.FromResult(true));
+
+        _mockTrackingService.AnonymizeUserDataAsync(Arg.Any<string>())
+            .Returns(Task.FromResult(true));
+
+        // Setup attribution service comprehensive mocks
+        _mockAttributionService.CalculateAttributionAsync(Arg.Any<Guid>(), Arg.Any<Guid?>())
+            .Returns(Task.FromResult(new AttributionResult
+            {
+                ConversionEventId = Guid.NewGuid(),
+                TotalAttribution = 1.0m,
+                Touchpoints = new List<AttributionTouch>()
+            }));
+
+        _mockAttributionService.GetAttributionSummaryAsync(Arg.Any<DateTime>(), Arg.Any<DateTime>(), Arg.Any<Guid?>())
+            .Returns(Task.FromResult(new AttributionSummaryResult
+            {
+                TotalConversions = 100,
+                TotalAttributedValue = 50000m,
+                Channels = new List<ChannelAttributionSummary>(),
+                TouchpointPositions = new List<TouchpointPositionSummary>()
+            }));
+
+        _mockAttributionService.GetChannelPerformanceAsync(Arg.Any<DateTime>(), Arg.Any<DateTime>(), Arg.Any<Guid?>())
+            .Returns(Task.FromResult<IEnumerable<ChannelPerformanceResult>>(new List<ChannelPerformanceResult>()));
+
+        _mockAttributionService.CompareAttributionModelsAsync(Arg.Any<DateTime>(), Arg.Any<DateTime>(), Arg.Any<IEnumerable<Guid>>())
+            .Returns(Task.FromResult(new AttributionModelComparisonResult
+            {
+                Models = new List<ModelComparisonSummary>(),
+                ChannelComparisons = new List<ChannelComparisonResult>()
+            }));
+
+        _mockAttributionService.GetAttributionModelsAsync()
+            .Returns(Task.FromResult<IEnumerable<AttributionModel>>(new List<AttributionModel>()));
+
+        _mockAttributionService.GetUserJourneyAsync(Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<int>())
+            .Returns(Task.FromResult(new List<AttributionTouch>()));
+    }
+}

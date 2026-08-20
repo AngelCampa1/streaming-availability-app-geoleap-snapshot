@@ -1,0 +1,111 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Primitives;
+
+namespace GeoLeap.Api.Tests.Infrastructure;
+
+/// <summary>
+/// Missing service interfaces that are referenced in the optimization infrastructure
+/// These provide placeholders for services that may not exist in all projects
+/// </summary>
+
+// REMOVED: ApplicationDbContext placeholder - use GeoLeap.Api.Data.ApplicationDbContext instead
+
+// Email service interface
+public interface IEmailService
+{
+    Task SendEmailAsync(string to, string subject, string body);
+}
+
+// Payment service interface
+public interface IPaymentService
+{
+    Task<PaymentResult> ProcessPaymentAsync(PaymentRequest request);
+}
+
+// Payment related classes
+public class PaymentRequest
+{
+    public decimal Amount { get; set; }
+    public string Currency { get; set; } = "USD";
+    public string PaymentMethodId { get; set; } = string.Empty;
+}
+
+public class PaymentResult
+{
+    public bool Success { get; set; }
+    public string TransactionId { get; set; } = string.Empty;
+    public string ErrorMessage { get; set; } = string.Empty;
+}
+
+// Configuration interface
+public interface IConfiguration
+{
+    string? this[string key] { get; set; }
+    IConfigurationSection GetSection(string key);
+}
+
+// Simple configuration implementation for testing
+public class TestConfiguration : IConfiguration
+{
+    private readonly Dictionary<string, string> _data = new();
+    
+    public string? this[string key] 
+    { 
+        get => _data.GetValueOrDefault(key);
+        set { if (value != null) _data[key] = value; }
+    }
+    
+    public IConfigurationSection GetSection(string key)
+    {
+        return new TestConfigurationSection();
+    }
+}
+
+public class TestConfigurationSection : IConfigurationSection
+{
+    private readonly Dictionary<string, string> _values = new();
+    
+    public string? this[string key]
+    {
+        get => _values.TryGetValue(key, out var value) ? value : null;
+        set => _values[key] = value ?? string.Empty;
+    }
+    public string Key => string.Empty;
+    public string Path => string.Empty;
+    public string? Value { get; set; }
+    public IEnumerable<IConfigurationSection> GetChildren() => Enumerable.Empty<IConfigurationSection>();
+    public IChangeToken GetReloadToken() => NullChangeToken.Singleton;
+    public IConfigurationSection GetSection(string key) => this;
+}
+
+// Change token implementation
+public class NullChangeToken : IChangeToken
+{
+    public static NullChangeToken Singleton { get; } = new();
+    public bool HasChanged => false;
+    public bool ActiveChangeCallbacks => false;
+    public IDisposable RegisterChangeCallback(Action<object?> callback, object? state) => NullDisposable.Instance;
+}
+
+public class NullDisposable : IDisposable
+{
+    public static NullDisposable Instance { get; } = new();
+    public void Dispose() { }
+}
+
+// IChangeToken interface if not available
+public interface IChangeToken
+{
+    bool HasChanged { get; }
+    bool ActiveChangeCallbacks { get; }
+    IDisposable RegisterChangeCallback(Action<object?> callback, object? state);
+}
+
+// IConfigurationSection interface if not available
+public interface IConfigurationSection : IConfiguration
+{
+    string Key { get; }
+    string Path { get; }
+    string? Value { get; set; }
+}

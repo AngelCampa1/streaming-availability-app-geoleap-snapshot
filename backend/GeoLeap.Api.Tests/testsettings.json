@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json.schemastore.org/appsettings.json",
+  "TestConfiguration": {
+    "SequentialExecution": false,
+    "MaxParallelThreads": 0,
+    "TestTimeoutSeconds": 30,
+    "RetryAttempts": 1,
+    "EnablePerformanceMonitoring": true,
+    "EnableResourceOptimization": true,
+    "EnableBatchExecution": true,
+    "BatchSize": 25,
+    "LogLevel": "Error",
+    "UseResourcePooling": true,
+    "MemoryThresholdMB": 1000,
+    "FileDescriptorThreshold": 200,
+    "EnableAggressiveCleanup": false,
+    "CleanupIntervalSeconds": 60,
+    "ForceGCBetweenTests": false,
+    "GCPauseMs": 10,
+    "UseInMemoryDatabase": true,
+    "TestDatabaseName": "TestDB",
+    "ResetDatabaseBetweenTests": false,
+    "HttpClientTimeoutSeconds": 15,
+    "MaxHttpConnections": 50,
+    "ReuseHttpClients": true,
+    "EnableFastValidation": true,
+    "ValidationTimeoutSeconds": 5,
+    "QuickTestCategories": ["Unit", "Integration", "Smoke"],
+    "EnableTestMetrics": true,
+    "MetricsCollectionInterval": 10,
+    "EnableMemoryProfiling": false,
+    "UseSharedTestInstances": true
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Warning",
+      "Microsoft": "Warning",
+      "Microsoft.Hosting.Lifetime": "Warning",
+      "Microsoft.EntityFrameworkCore": "Warning",
+      "System.Net.Http.HttpClient": "Warning"
+    }
+  },
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=localhost\\SQLEXPRESS01;Database=GeoLeapApiTest;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true;Encrypt=False",
+    "Redis": "localhost:6379"
+  }
+}

@@ -1,0 +1,529 @@
+/**
+ * SEO Validation Tests
+ * Tests meta tags, structured data, and SEO compliance for content pages
+ */
+
+import { JSDOM } from 'jsdom';
+import { generateContentMetadata, generateMetaTags } from '@/lib/seo/content-metadata';
+import { generateContentSchema, generateContentFaqSchema, generateStreamingHowToSchema } from '@/lib/seo/schema-markup';
+import type { ContentData } from '@/lib/api/content';
+// Importing types for SEO validation tests
+
+// Mock the url-generation module
+jest.mock('@/lib/seo/url-generation', () => ({
+  generateCanonicalUrl: jest.fn((type, slug) => `https://streamvpn.com/content/${type}/${slug}`),
+  generateOgImageUrl: jest.fn((id, title, type) => `https://streamvpn.com/api/og?id=${id}&title=${encodeURIComponent(title)}&type=${type}`),
+}));
+
+describe('SEO Validation Tests', () => {
+  const mockMovieContent: ContentData = {
+    id: '123',
+    title: 'The Dark Knight',
+    overview: 'When the menace known as the Joker wreaks havoc and chaos on the people of Gotham, Batman must accept one of the greatest psychological and physical tests.',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/poster.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1920/backdrop.jpg',
+    releaseYear: 2008,
+    genres: ['Action', 'Crime', 'Drama'],
+    rating: 9.0,
+    voteCount: 2500000,
+    runtime: 152,
+    contentRating: 'PG-13',
+    cast: [
+      { id: 1, name: 'Christian Bale', character: 'Bruce Wayne', profilePath: '/bale.jpg', order: 1 },
+      { id: 2, name: 'Heath Ledger', character: 'Joker', profilePath: '/ledger.jpg', order: 2 },
+    ],
+    crew: [
+      { id: 3, name: 'Christopher Nolan', job: 'Director', profilePath: '/nolan.jpg', department: 'Directing' },
+    ],
+    streamingOptions: [
+      {
+        serviceId: 'netflix',
+        serviceName: 'Netflix',
+        url: 'https://netflix.com/watch/123',
+        type: 'subscription',
+        quality: ['HD'],
+        price: 15.99,
+        currency: 'USD',
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://streamvpn.com';
+  });
+
+  describe('Meta Tags Validation', () => {
+    it('should generate valid title tags', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.title).toBeDefined();
+      expect(typeof metadata.title).toBe('string');
+      expect(String(metadata.title).length).toBeGreaterThan(0);
+      expect(String(metadata.title).length).toBeLessThanOrEqual(60); // SEO best practice
+      expect(metadata.title).toContain('The Dark Knight');
+      expect(metadata.title).toContain('StreamVPN'); // Brand mention
+    });
+
+    it('should generate valid meta descriptions', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.description).toBeDefined();
+      expect(typeof metadata.description).toBe('string');
+      expect(String(metadata.description).length).toBeGreaterThan(0);
+      expect(String(metadata.description).length).toBeLessThanOrEqual(160); // SEO best practice
+      expect(metadata.description).not.toContain('"'); // No unescaped quotes
+      expect(metadata.description).not.toContain('\n'); // No line breaks
+    });
+
+    it('should generate valid keywords', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.keywords).toBeDefined();
+      expect(typeof metadata.keywords).toBe('string');
+      expect((metadata.keywords as string)?.split(',').length).toBeGreaterThanOrEqual(3);
+      expect(metadata.keywords).toContain('The Dark Knight');
+      expect(metadata.keywords).toContain('movie');
+    });
+
+    it('should generate valid Open Graph tags', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.openGraph).toBeDefined();
+      expect((metadata.openGraph as Record<string, unknown>)?.type).toMatch(/^video\.(movie|tv_show)$/);
+      expect(metadata.openGraph?.title).toBeDefined();
+      expect(metadata.openGraph?.description).toBeDefined();
+      expect(metadata.openGraph?.url).toMatch(/^https:\/\//);
+      expect(metadata.openGraph?.siteName).toBe('StreamVPN');
+      expect(metadata.openGraph?.locale).toBe('en_US');
+
+      interface OpenGraphImage {
+        url: string;
+        width: number;
+        height: number;
+        alt: string;
+      }
+      
+      const images = metadata.openGraph?.images as OpenGraphImage[];
+      expect(Array.isArray(images)).toBe(true);
+      expect(images.length).toBeGreaterThan(0);
+      images.forEach(image => {
+        expect(image.url).toMatch(/^https:\/\//);
+        expect(image.width).toBeGreaterThan(0);
+        expect(image.height).toBeGreaterThan(0);
+        expect(image.alt).toBeDefined();
+      });
+    });
+
+    it('should generate valid Twitter Card tags', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.twitter).toBeDefined();
+      expect((metadata.twitter as Record<string, unknown>)?.card).toBe('summary_large_image');
+      expect(metadata.twitter?.title).toBeDefined();
+      expect(metadata.twitter?.description).toBeDefined();
+      expect(metadata.twitter?.creator).toBe('@StreamVPN');
+      expect(metadata.twitter?.site).toBe('@StreamVPN');
+      
+      const images = metadata.twitter?.images;
+      expect(Array.isArray(images)).toBe(true);
+      expect(Array.isArray(images) ? images.length : 0).toBeGreaterThan(0);
+      (Array.isArray(images) ? images : []).forEach((image: unknown) => {
+        const imageUrl = typeof image === 'string' ? image : (image as Record<string, unknown>)?.url;
+        expect(imageUrl).toMatch(/^https:\/\//);
+      });
+    });
+
+    it('should generate valid canonical URLs', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.alternates?.canonical).toBeDefined();
+      expect(metadata.alternates?.canonical).toMatch(/^https:\/\/streamvpn\.com/);
+      expect(metadata.alternates?.canonical).not.toContain(' '); // No spaces
+      expect(metadata.alternates?.canonical).not.toContain('\n'); // No line breaks
+    });
+
+    it('should set proper robots directives', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.robots).toBeDefined();
+      const robots = metadata.robots as Record<string, unknown>;
+      expect(robots?.index).toBe(true);
+      expect(robots?.follow).toBe(true);
+      expect(robots?.googleBot).toBeDefined();
+      const googleBot = robots?.googleBot as Record<string, unknown>;
+      expect(googleBot?.index).toBe(true);
+      expect(googleBot?.follow).toBe(true);
+    });
+
+    it('should validate HTML meta tags format', () => {
+      const metaTags = generateMetaTags(mockMovieContent, 'movie');
+
+      expect(typeof metaTags).toBe('string');
+
+      // Parse HTML to validate structure
+      const dom = new JSDOM(`<html><head>${metaTags}</head></html>`);
+      const doc = dom.window.document;
+
+      // Check for required meta tags
+      const description = doc.querySelector('meta[name="description"]');
+      const keywords = doc.querySelector('meta[name="keywords"]');
+      const ogType = doc.querySelector('meta[property="og:type"]');
+      const twitterCard = doc.querySelector('meta[name="twitter:card"]');
+
+      expect(description).not.toBeNull();
+      expect(keywords).not.toBeNull();
+      expect(ogType).not.toBeNull();
+      expect(twitterCard).not.toBeNull();
+
+      // Validate content attributes
+      expect(description?.getAttribute('content')).toBeTruthy();
+      expect(keywords?.getAttribute('content')).toBeTruthy();
+      expect(ogType?.getAttribute('content')).toMatch(/^video\.(movie|tv_show)$/);
+      expect(twitterCard?.getAttribute('content')).toBe('summary_large_image');
+    });
+  });
+
+  describe('Structured Data Validation', () => {
+    it('should generate valid JSON-LD schema', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+
+      expect(Array.isArray(schemas)).toBe(true);
+      expect(schemas.length).toBeGreaterThanOrEqual(2);
+
+      schemas.forEach(schema => {
+        expect(schema['@context']).toBe('https://schema.org');
+        expect(schema['@type']).toBeTruthy();
+      });
+    });
+
+    it('should validate Movie schema properties', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      const movieSchema = schemas.find(s => s['@type'] === 'Movie');
+
+      expect(movieSchema).toBeDefined();
+      expect(movieSchema?.name).toBeTruthy();
+      expect(movieSchema?.identifier).toBeTruthy();
+      expect(movieSchema?.url).toMatch(/^https:\/\//);
+
+      if (movieSchema?.datePublished) {
+        expect(movieSchema.datePublished).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      }
+
+      if (movieSchema?.aggregateRating) {
+        expect((movieSchema.aggregateRating as Record<string, unknown>)['@type']).toBe('AggregateRating');
+        const aggregateRating = movieSchema.aggregateRating as { ratingValue: number; bestRating: number; worstRating: number };
+        expect(aggregateRating.ratingValue).toBeGreaterThan(0);
+        expect(aggregateRating.bestRating).toBe(10);
+        expect(aggregateRating.worstRating).toBe(1);
+      }
+
+      if (movieSchema?.actor) {
+        const actorList = movieSchema.actor as Array<{ '@type': string; name: string }>;
+        actorList.forEach((actor) => {
+          expect(actor['@type']).toBe('Person');
+          expect(actor.name).toBeTruthy();
+        });
+      }
+
+      if (movieSchema?.director) {
+        (movieSchema.director as Array<{ '@type': string; name: string }>).forEach((director) => {
+          expect(director['@type']).toBe('Person');
+          expect(director.name).toBeTruthy();
+        });
+      }
+    });
+
+    it('should validate BreadcrumbList schema', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      const breadcrumbSchema = schemas.find(s => s['@type'] === 'BreadcrumbList');
+
+      expect(breadcrumbSchema).toBeDefined();
+      expect(Array.isArray(breadcrumbSchema?.itemListElement)).toBe(true);
+      const breadcrumbItems = breadcrumbSchema?.itemListElement as Array<{ '@type': string; position: number; name: string; item: string }>;
+      expect(breadcrumbItems?.length).toBeGreaterThanOrEqual(2);
+
+      breadcrumbItems?.forEach((item, _index) => {
+        expect(item['@type']).toBe('ListItem');
+        expect(item.position).toBe(_index + 1);
+        expect(item.name).toBeTruthy();
+        expect(item.item).toMatch(/^https:\/\//);
+      });
+    });
+
+    it('should validate FAQ schema when generated', () => {
+      const faqSchema = generateContentFaqSchema(mockMovieContent, 'movie') as Record<string, unknown> | null;
+
+      if (faqSchema) {
+        expect(faqSchema['@type']).toBe('FAQPage');
+        expect(Array.isArray(faqSchema.mainEntity)).toBe(true);
+        const faqMainEntity = faqSchema.mainEntity as Array<{ '@type': string; name: string; acceptedAnswer: { '@type': string; text: string } }>;
+        expect(faqMainEntity.length).toBeGreaterThan(0);
+
+        faqMainEntity.forEach((faq) => {
+          expect(faq['@type']).toBe('Question');
+          expect(faq.name).toBeTruthy();
+          expect(faq.acceptedAnswer).toBeDefined();
+          expect(faq.acceptedAnswer['@type']).toBe('Answer');
+          expect(faq.acceptedAnswer.text).toBeTruthy();
+        });
+      }
+    });
+
+    it('should validate HowTo schema when generated', () => {
+      const howToSchema = generateStreamingHowToSchema(mockMovieContent, 'movie') as Record<string, unknown> | null;
+
+      if (howToSchema) {
+        expect(howToSchema['@type']).toBe('HowTo');
+        expect(howToSchema.name).toBeTruthy();
+        expect(howToSchema.description).toBeTruthy();
+        expect(howToSchema.totalTime).toMatch(/^PT\d+M$/);
+
+        expect(Array.isArray(howToSchema.supply)).toBe(true);
+        (howToSchema.supply as Array<{ '@type': string; name: string }>).forEach((supply) => {
+          expect(supply['@type']).toBe('HowToSupply');
+          expect(supply.name).toBeTruthy();
+        });
+
+        expect(Array.isArray(howToSchema.step)).toBe(true);
+        (howToSchema.step as Array<{ '@type': string; name: string; text: string }>).forEach((step) => {
+          expect(step['@type']).toBe('HowToStep');
+          expect(step.name).toBeTruthy();
+          expect(step.text).toBeTruthy();
+        });
+      }
+    });
+
+    it('should validate schema data types', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      const movieSchema = schemas.find(s => s['@type'] === 'Movie');
+
+      if (movieSchema?.rating) {
+        expect(typeof movieSchema.rating).toBe('number');
+      }
+
+      if (movieSchema?.datePublished) {
+        expect(new Date(movieSchema.datePublished as string).toString()).not.toBe('Invalid Date');
+      }
+
+      if (movieSchema?.duration) {
+        expect(movieSchema.duration).toMatch(/^PT\d+M$/);
+      }
+
+      if (movieSchema?.offers) {
+        (movieSchema.offers as Array<{ '@type': string; url: string; availability: string }>).forEach((offer) => {
+          expect(offer['@type']).toBe('Offer');
+          expect(offer.url).toMatch(/^https:\/\//);
+          expect(offer.availability).toMatch(/^https:\/\/schema\.org\//);
+        });
+      }
+    });
+  });
+
+  describe('SEO Best Practices Compliance', () => {
+    it('should meet title length requirements', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.title?.length).toBeLessThanOrEqual(60);
+      expect(metadata.title?.length).toBeGreaterThan(10);
+    });
+
+    it('should meet description length requirements', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.description?.length).toBeLessThanOrEqual(160);
+      expect(metadata.description?.length).toBeGreaterThan(50);
+    });
+
+    it('should include target keywords in title', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.title).toContain(mockMovieContent.title);
+      expect(metadata.title?.toLowerCase()).toContain('movie');
+      expect(metadata.title).toContain('StreamVPN');
+    });
+
+    it('should include target keywords in description', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.description).toContain(mockMovieContent.title);
+      expect(metadata.description?.toLowerCase()).toMatch(/watch|stream|available/);
+    });
+
+    it('should avoid keyword stuffing', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      const titleWordCount = metadata.title?.split(' ').length || 0;
+      const titleUniqueWords = new Set(metadata.title?.toLowerCase().split(' '));
+      const repetitionRatio = titleUniqueWords.size / titleWordCount;
+
+      // Most words should be unique (avoid repetition)
+      expect(repetitionRatio).toBeGreaterThan(0.7);
+    });
+
+    it('should use proper heading structure implication', () => {
+      // This tests that our SEO data implies good heading structure
+      const title = 'The Dark Knight (2008) - 9.0/10 ⭐ - Movie | Watch on 1 Platform | StreamVPN';
+
+      // Title should be suitable as H1
+      expect(title.length).toBeLessThan(100);
+      expect(title).toContain('The Dark Knight'); // Main keyword first
+    });
+
+    it('should generate mobile-friendly meta viewport implications', async () => {
+      // While we don't generate viewport directly, our content should be mobile-friendly
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      // Titles should be readable on mobile (not too long)
+      expect(metadata.title?.length).toBeLessThan(60);
+      
+      // Descriptions should be mobile-appropriate
+      expect(metadata.description?.length).toBeLessThan(160);
+    });
+
+    it('should support social media sharing', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      // Should have Open Graph data
+      expect(metadata.openGraph).toBeDefined();
+      expect(metadata.openGraph?.images).toBeDefined();
+
+      // Should have Twitter Card data
+      expect(metadata.twitter).toBeDefined();
+      expect(metadata.twitter?.card).toBeDefined();
+
+      // Images should be appropriate size
+      const ogImages = metadata.openGraph?.images as Array<{ width: number; height: number }>;
+      if (ogImages?.length) {
+        expect(ogImages[0].width).toBeGreaterThanOrEqual(1200);
+        expect(ogImages[0].height).toBeGreaterThanOrEqual(630);
+      }
+    });
+
+    it('should include proper structured data for rich snippets', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      const movieSchema = schemas.find(s => s['@type'] === 'Movie');
+
+      // Should have data that enables rich snippets
+      expect(movieSchema.name).toBeTruthy();
+      expect(movieSchema.image).toBeTruthy();
+      
+      if (movieSchema.aggregateRating) {
+        expect(movieSchema.aggregateRating.ratingValue).toBeTruthy();
+      }
+
+      if (movieSchema.offers) {
+        expect(movieSchema.offers.length).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  describe('International SEO Compliance', () => {
+    it('should use proper language codes', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      expect(metadata.openGraph?.locale).toBe('en_US');
+    });
+
+    it('should support UTF-8 characters in metadata', async () => {
+      const internationalContent = {
+        ...mockMovieContent,
+        title: 'Amélie',
+        overview: 'Un film français avec des caractères spéciaux: é, à, ç, ñ, ü',
+      };
+
+      const metadata = await generateContentMetadata(internationalContent, 'movie');
+
+      expect(metadata.title).toContain('Amélie');
+      expect(metadata.description).toContain('français');
+      expect(metadata.description).toContain('é');
+    });
+
+    it('should handle right-to-left language considerations', async () => {
+      const rtlContent = {
+        ...mockMovieContent,
+        title: 'فيلم عربي',
+        overview: 'وصف الفيلم باللغة العربية',
+      };
+
+      const metadata = await generateContentMetadata(rtlContent, 'movie');
+
+      // Should not break with RTL text
+      expect(metadata.title).toContain('فيلم عربي');
+      expect(metadata.description).toContain('وصف الفيلم');
+    });
+  });
+
+  describe('Technical SEO Validation', () => {
+    it('should generate valid URLs', async () => {
+      const metadata = await generateContentMetadata(mockMovieContent, 'movie');
+
+      const urlPattern = /^https:\/\/[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(\/[^\s]*)?$/;
+      
+      expect(metadata.alternates?.canonical).toMatch(urlPattern);
+
+      const ogImages = metadata.openGraph?.images as Array<{ url: string }>;
+      ogImages?.forEach(image => {
+        expect(image.url).toMatch(urlPattern);
+      });
+    });
+
+    it('should escape special characters properly', async () => {
+      const specialCharContent = {
+        ...mockMovieContent,
+        title: 'Movie with "Quotes" & Ampersands',
+        overview: 'Description with <HTML> tags & "quotes"',
+      };
+
+      const metadata = await generateContentMetadata(specialCharContent, 'movie');
+
+      // HTML should be escaped in meta content
+      expect(metadata.title).not.toContain('<');
+      expect(metadata.title).not.toContain('>');
+      
+      // But quotes in titles are acceptable
+      expect(metadata.title).toContain('Quotes');
+    });
+
+    it('should maintain consistent URL structure', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      const movieSchema = schemas.find(s => s['@type'] === 'Movie');
+      const breadcrumbSchema = schemas.find(s => s['@type'] === 'BreadcrumbList');
+
+      // URLs should follow consistent pattern
+      expect(movieSchema.url).toContain('/content/movie/');
+      
+      const breadcrumbList = breadcrumbSchema as { itemListElement?: Array<{ item: string }> };
+      const lastBreadcrumb = breadcrumbList?.itemListElement?.[breadcrumbList.itemListElement.length - 1];
+      expect(lastBreadcrumb?.item).toContain('/content/movie/');
+    });
+
+    it('should validate JSON-LD syntax', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+
+      // Should be valid JSON
+      expect(() => JSON.stringify(schemas)).not.toThrow();
+
+      // Should parse back correctly
+      const serialized = JSON.stringify(schemas);
+      const parsed = JSON.parse(serialized);
+      expect(parsed).toEqual(schemas);
+    });
+
+    it('should handle null and undefined values gracefully', async () => {
+      const minimalContent: ContentData = {
+        id: '123',
+        title: 'Minimal Movie',
+        genres: [], // Required field
+        // Most other fields are undefined
+      };
+
+      expect(async () => {
+        await generateContentMetadata(minimalContent as ContentData, 'movie');
+      }).not.toThrow();
+
+      expect(() => {
+        generateContentSchema(minimalContent as ContentData, 'movie');
+      }).not.toThrow();
+    });
+  });
+});

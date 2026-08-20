@@ -1,0 +1,491 @@
+'use client';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+import React, { useState, useCallback } from 'react';
+import { Search, Settings, Download, Upload, RotateCcw, Wifi, WifiOff } from 'lucide-react';
+import { usePreferences } from '@/hooks/usePreferences';
+import { useTheme } from '@/contexts/ThemeContext';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { PreferenceCategorySection } from './PreferenceCategorySection';
+import { StreamingServicesPreferences } from './StreamingServicesPreferences';
+import { NotificationPreferences } from './NotificationPreferences';
+import { PrivacyPreferences } from './PrivacyPreferences';
+import { ViewingPreferences } from './ViewingPreferences';
+import { InterfacePreferences } from './InterfacePreferences';
+import { LanguagePreferences } from './LanguagePreferences';
+import { useLanguagePreferences } from '@/hooks/useLanguagePreferences';
+import { GeographicPreferences } from './GeographicPreferences';
+import { SearchBehaviorPreferences } from './SearchBehaviorPreferences';
+
+export interface PreferencesDashboardProps {
+  className?: string;
+}
+
+export function PreferencesDashboard({ className }: PreferencesDashboardProps) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activeCategory, setActiveCategory] = useState('streaming');
+  const [_importFile, setImportFile] = useState<File | null>(null);
+
+  const {
+    preferences,
+    isLoading,
+    isUpdating,
+    isResetting,
+    isExporting,
+    isImporting,
+    updatePreference,
+    reset,
+    export: exportPreferences,
+    import: importPreferences,
+    getCategoryPreferences,
+    isConnected,
+    connectionState,
+  } = usePreferences();
+
+  const { theme } = useTheme();
+  const languagePrefsHook = useLanguagePreferences();
+
+  // Filter preferences based on search
+  const filteredPreferences = React.useMemo(() => {
+    if (!searchTerm.trim()) return preferences;
+
+    const searchLower = searchTerm.toLowerCase();
+    const filtered: Record<string, Record<string, any>> = {};
+
+    for (const [category, prefs] of Object.entries(preferences || {})) {
+      const categoryMatch = category.toLowerCase().includes(searchLower);
+      const matchingPrefs: Record<string, any> = {};
+
+      for (const [key, value] of Object.entries(prefs)) {
+        if (categoryMatch || key.toLowerCase().includes(searchLower)) {
+          matchingPrefs[key] = value;
+        }
+      }
+
+      if (Object.keys(matchingPrefs).length > 0) {
+        filtered[category] = matchingPrefs;
+      }
+    }
+
+    return filtered;
+  }, [preferences, searchTerm]);
+
+  // Handle file import
+  const handleFileImport = useCallback(
+    async (file: File) => {
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+
+        if (data.preferences) {
+          importPreferences(data.preferences);
+        } else {
+          console.error('Invalid preferences file format');
+        }
+      } catch (error) {
+        console.error('Failed to parse preferences file:', error);
+      }
+    },
+    [importPreferences]
+  );
+
+  // Handle reset confirmation
+  const handleResetCategory = useCallback(
+    (category?: string) => {
+      reset(category);
+    },
+    [reset]
+  );
+
+  // Category definitions
+  const categoryTabs = [
+    {
+      id: 'streaming',
+      label: 'Streaming Services',
+      icon: '🎬',
+      description: 'Manage your streaming service preferences and priorities',
+    },
+    {
+      id: 'notifications',
+      label: 'Notifications',
+      icon: '🔔',
+      description: 'Configure how and when you receive notifications',
+    },
+    {
+      id: 'viewing',
+      label: 'Viewing',
+      icon: '👁️',
+      description: 'Customize your viewing experience and content preferences',
+    },
+    {
+      id: 'interface',
+      label: 'Interface',
+      icon: '🎨',
+      description: 'Personalize the interface theme and layout',
+    },
+    {
+      id: 'privacy',
+      label: 'Privacy',
+      icon: '🔒',
+      description: 'Control your privacy and data sharing settings',
+    },
+    {
+      id: 'geographic',
+      label: 'Geographic',
+      icon: '🌍',
+      description: 'Set your location and regional preferences',
+    },
+    {
+      id: 'search',
+      label: 'Search Behavior',
+      icon: '🔍',
+      description: 'Customize search filters and result preferences',
+    },
+    {
+      id: 'languages',
+      label: 'Languages',
+      icon: '🌐',
+      description: 'Set your preferred audio and subtitle languages',
+    },
+  ];
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <span className="ml-2">Loading preferences...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`preferences-dashboard space-y-6 ${className || ''}`}>
+      {/* Header */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5" />
+                User Preferences & Settings
+              </CardTitle>
+              <CardDescription>Customize your GeoLeap experience with personalized settings</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Connection Status */}
+              <Badge variant={isConnected ? 'default' : 'secondary'} className="flex items-center gap-1">
+                {isConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+                {connectionState}
+              </Badge>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
+
+      {/* Search and Actions */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex flex-col sm:flex-row gap-4 items-center">
+            {/* Search */}
+            <div className="relative flex-1 w-full">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search preferences..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-2 w-full sm:w-auto">
+              {/* Export */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => exportPreferences()}
+                disabled={isExporting}
+                className="flex items-center gap-1"
+              >
+                <Download className="h-4 w-4" />
+                Export
+              </Button>
+
+              {/* Import */}
+              <div className="relative">
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setImportFile(file);
+                      handleFileImport(file);
+                    }
+                  }}
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                  disabled={isImporting}
+                />
+                <Button variant="outline" size="sm" disabled={isImporting} className="flex items-center gap-1">
+                  <Upload className="h-4 w-4" />
+                  Import
+                </Button>
+              </div>
+
+              {/* Reset All */}
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" size="sm" disabled={isResetting} className="flex items-center gap-1">
+                    <RotateCcw className="h-4 w-4" />
+                    Reset All
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Reset All Preferences</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This action will reset all your preferences to their default values. This cannot be undone. Are
+                      you sure you want to continue?
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => handleResetCategory()}>Reset All</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Preferences Categories */}
+      <Tabs value={activeCategory} onValueChange={setActiveCategory} className="w-full">
+        <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          {categoryTabs.map(tab => (
+            <TabsTrigger key={tab.id} value={tab.id} className="text-xs">
+              <span className="mr-1">{tab.icon}</span>
+              <span className="hidden sm:inline">{tab.label}</span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        {/* Streaming Services */}
+        <TabsContent value="streaming" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                🎬 Streaming Services
+                {isUpdating && <Badge variant="secondary">Updating...</Badge>}
+              </CardTitle>
+              <CardDescription>Manage your streaming service subscriptions and viewing priorities</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <StreamingServicesPreferences
+                preferences={getCategoryPreferences('streaming')}
+                onUpdate={(key, value) => updatePreference({ category: 'streaming', key, value })}
+                isUpdating={isUpdating}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Notifications */}
+        <TabsContent value="notifications" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                🔔 Notifications
+                {isUpdating && <Badge variant="secondary">Updating...</Badge>}
+              </CardTitle>
+              <CardDescription>Control how and when you receive notifications</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <NotificationPreferences
+                preferences={getCategoryPreferences('notifications')}
+                onUpdate={(key, value) => updatePreference({ category: 'notifications', key, value })}
+                isUpdating={isUpdating}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Viewing Preferences */}
+        <TabsContent value="viewing" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                👁️ Viewing Preferences
+                {isUpdating && <Badge variant="secondary">Updating...</Badge>}
+              </CardTitle>
+              <CardDescription>Customize your content viewing experience</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ViewingPreferences
+                preferences={getCategoryPreferences('viewing')}
+                onUpdate={(key, value) => updatePreference({ category: 'viewing', key, value })}
+                isUpdating={isUpdating}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Interface */}
+        <TabsContent value="interface" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                🎨 Interface
+                {isUpdating && <Badge variant="secondary">Updating...</Badge>}
+              </CardTitle>
+              <CardDescription>Personalize the interface theme and layout</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <InterfacePreferences
+                preferences={getCategoryPreferences('interface')}
+                onUpdate={(key, value) => updatePreference({ category: 'interface', key, value })}
+                isUpdating={isUpdating}
+                currentTheme={theme}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Privacy */}
+        <TabsContent value="privacy" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                🔒 Privacy & Security
+                {isUpdating && <Badge variant="secondary">Updating...</Badge>}
+              </CardTitle>
+              <CardDescription>Control your privacy and data sharing settings</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <PrivacyPreferences
+                preferences={getCategoryPreferences('privacy')}
+                onUpdate={(key, value) => updatePreference({ category: 'privacy', key, value })}
+                isUpdating={isUpdating}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Geographic */}
+        <TabsContent value="geographic" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                🌍 Geographic Preferences
+                {isUpdating && <Badge variant="secondary">Updating...</Badge>}
+              </CardTitle>
+              <CardDescription>Set your location and regional content preferences</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <GeographicPreferences
+                preferences={getCategoryPreferences('geographic')}
+                onUpdate={(key, value) => updatePreference({ category: 'geographic', key, value })}
+                isUpdating={isUpdating}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Search Behavior */}
+        <TabsContent value="search" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                🔍 Search Behavior
+                {isUpdating && <Badge variant="secondary">Updating...</Badge>}
+              </CardTitle>
+              <CardDescription>Customize search filters and result preferences</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SearchBehaviorPreferences
+                preferences={getCategoryPreferences('search')}
+                onUpdate={(key, value) => updatePreference({ category: 'search', key, value })}
+                isUpdating={isUpdating}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Languages */}
+        <TabsContent value="languages" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                U0001F30D Languages
+                {languagePrefsHook.isUpdating && <Badge variant="secondary">Updating...</Badge>}
+              </CardTitle>
+              <CardDescription>Set your preferred audio and subtitle languages</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <LanguagePreferences
+                preferences={{
+                  audioLanguages: languagePrefsHook.preferences.audioLanguages || [],
+                  subtitleLanguages: languagePrefsHook.preferences.subtitleLanguages || [],
+                }}
+                onUpdate={(key, value) => {
+                  if (key === 'audioLanguages') {
+                    languagePrefsHook.updatePreferences(value as string[], languagePrefsHook.preferences.subtitleLanguages || []);
+                  } else if (key === 'subtitleLanguages') {
+                    languagePrefsHook.updatePreferences(languagePrefsHook.preferences.audioLanguages || [], value as string[]);
+                  }
+                }}
+                disabled={languagePrefsHook.isUpdating}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Search Results */}
+      {searchTerm && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Search Results</CardTitle>
+            <CardDescription>
+              Found {Object.keys(filteredPreferences || {}).length} categories matching &quot;{searchTerm}&quot;
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {Object.keys(filteredPreferences || {}).length > 0 ? (
+              <div className="space-y-4">
+                {Object.entries(filteredPreferences || {}).map(([category, prefs]) => (
+                  <PreferenceCategorySection
+                    key={category}
+                    category={category}
+                    preferences={prefs}
+                    onUpdate={(key, value) => updatePreference({ category, key, value })}
+                    onReset={() => handleResetCategory(category)}
+                    isUpdating={isUpdating}
+                    isResetting={isResetting}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-center py-8">No preferences found matching your search.</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}

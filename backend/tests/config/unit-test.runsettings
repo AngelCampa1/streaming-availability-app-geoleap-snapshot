@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Unit Test Configuration - Fast, Isolated Execution -->
+<RunSettings>
+  <!-- Test execution configuration -->
+  <RunConfiguration>
+    <!-- Maximum number of CPU cores to use (1 for unit tests to avoid conflicts) -->
+    <MaxCpuCount>1</MaxCpuCount>
+    
+    <!-- Disable parallel execution for unit tests to ensure isolation -->
+    <DisableParallelization>true</DisableParallelization>
+    
+    <!-- Target platform architecture -->
+    <TargetPlatform>x64</TargetPlatform>
+    
+    <!-- Target framework -->
+    <TargetFrameworkVersion>net9.0</TargetFrameworkVersion>
+    
+    <!-- Test session timeout (5 minutes max for unit tests) -->
+    <TestSessionTimeout>300000</TestSessionTimeout>
+    
+    <!-- Batch size for test execution -->
+    <BatchSize>10</BatchSize>
+  </RunConfiguration>
+
+  <!-- Test framework configuration -->
+  <MSTest>
+    <!-- Capture console output -->
+    <CaptureTraceOutput>true</CaptureTraceOutput>
+    
+    <!-- Timeout for individual tests (100ms for unit tests) -->
+    <TestTimeout>100</TestTimeout>
+    
+    <!-- Force sequential execution -->
+    <Parallelize>
+      <Workers>1</Workers>
+      <Scope>MethodLevel</Scope>
+    </Parallelize>
+  </MSTest>
+
+  <!-- xUnit configuration -->
+  <xUnit>
+    <!-- Disable parallel execution -->
+    <ParallelizeTestCollections>false</ParallelizeTestCollections>
+    <ParallelizeAssembly>false</ParallelizeAssembly>
+    
+    <!-- Method display configuration -->
+    <MethodDisplay>ClassAndMethod</MethodDisplay>
+    
+    <!-- Diagnostic messages -->
+    <DiagnosticMessages>false</DiagnosticMessages>
+    
+    <!-- Internal diagnostic messages -->
+    <InternalDiagnosticMessages>false</InternalDiagnosticMessages>
+  </xUnit>
+
+  <!-- Data collection configuration -->
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <!-- Code coverage disabled for unit tests (performance) -->
+      <!--
+      <DataCollector friendlyName="Code Coverage" uri="datacollector://Microsoft/CodeCoverage/2.0" assemblyQualifiedName="Microsoft.VisualStudio.Coverage.DynamicCoverageDataCollector, Microsoft.VisualStudio.TraceCollector, Version=11.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
+        <Configuration>
+          <CodeCoverage>
+            <ModulePaths>
+              <Exclude>
+                <ModulePath>.*Tests\.dll$</ModulePath>
+                <ModulePath>.*TestFramework\.dll$</ModulePath>
+              </Exclude>
+            </ModulePaths>
+          </CodeCoverage>
+        </Configuration>
+      </DataCollector>
+      -->
+    </DataCollectors>
+  </DataCollectionRunSettings>
+
+  <!-- Test parameters for unit tests -->
+  <TestRunParameters>
+    <Parameter name="TestTimeout" value="100" />
+    <Parameter name="Category" value="Unit" />
+    <Parameter name="DatabaseProvider" value="None" />
+    <Parameter name="MockExternalServices" value="true" />
+    <Parameter name="LogLevel" value="Warning" />
+    <Parameter name="EnableRetry" value="false" />
+  </TestRunParameters>
+
+  <!-- Logging configuration -->
+  <LoggerRunSettings>
+    <Loggers>
+      <Logger friendlyName="console" enabled="True">
+        <Configuration>
+          <Verbosity>minimal</Verbosity>
+        </Configuration>
+      </Logger>
+      <Logger friendlyName="trx" enabled="True">
+        <Configuration>
+          <LogFileName>unit-tests.trx</LogFileName>
+        </Configuration>
+      </Logger>
+    </Loggers>
+  </LoggerRunSettings>
+</RunSettings>

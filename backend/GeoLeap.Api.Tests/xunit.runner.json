@@ -1,0 +1,14 @@
+{
+  "$schema": "https://xunit.net/schema/current/xunit.runner.schema.json",
+  "parallelizeAssembly": false,
+  "parallelizeTestCollections": false,
+  "maxParallelThreads": 1,
+  "preEnumerateTheories": false,
+  "shadowCopy": false,
+  "diagnosticMessages": false,
+  "internalDiagnosticMessages": false,
+  "methodDisplay": "method",
+  "methodDisplayOptions": "none",
+  "stopOnFail": false,
+  "longRunningTestSeconds": 30
+}

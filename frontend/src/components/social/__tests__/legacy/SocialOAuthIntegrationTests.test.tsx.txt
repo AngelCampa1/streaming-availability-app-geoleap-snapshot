@@ -1,0 +1,922 @@
+/**
+ * Social OAuth Integration Tests
+ * Tests OAuth popup flows, callback handling, and security features
+ * Validates complete authentication workflows
+ */
+
+import React from 'react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+// Components under test
+import { SocialAuthProvider, useSocialAuth } from '../../../contexts/SocialAuthContext';
+import { SocialLoginButton } from '../SocialLoginButton';
+import { SocialAuthCallback } from '../SocialAuthCallback';
+import { SocialPlatform } from '../../../types/social';
+
+// Mock window APIs for OAuth flow testing
+const mockWindowOpen = jest.fn();
+const mockWindowClose = jest.fn();
+const mockWindowFocus = jest.fn();
+
+Object.defineProperty(window, 'open', {
+  writable: true,
+  value: mockWindowOpen
+});
+
+Object.defineProperty(window, 'close', {
+  writable: true,
+  value: mockWindowClose
+});
+
+Object.defineProperty(window, 'focus', {
+  writable: true,
+  value: mockWindowFocus
+});
+
+// Mock crypto for secure state generation
+Object.defineProperty(window, 'crypto', {
+  writable: true,
+  value: {
+    getRandomValues: jest.fn((arr) => {
+      for (let i = 0; i < arr.length; i++) {
+        arr[i] = Math.floor(Math.random() * 256);
+      }
+      return arr;
+    })
+  }
+});
+
+// Mock fetch
+const mockFetch = jest.fn();
+global.fetch = mockFetch;
+
+// Mock localStorage for token storage
+const localStorageMock = {
+  getItem: jest.fn(() => 'mock-access-token'),
+  setItem: jest.fn(),
+  removeItem: jest.fn(),
+  clear: jest.fn(),
+};
+Object.defineProperty(window, 'localStorage', {
+  value: localStorageMock,
+});
+
+// Mock sessionStorage for OAuth state
+const sessionStorageMock = {
+  getItem: jest.fn(),
+  setItem: jest.fn(),
+  removeItem: jest.fn(),
+  clear: jest.fn(),
+};
+Object.defineProperty(window, 'sessionStorage', {
+  value: sessionStorageMock,
+});
+
+// Test wrapper
+const createTestQueryClient = () => new QueryClient({
+  defaultOptions: {
+    queries: { retry: false, cacheTime: 0 },
+    mutations: { retry: false }
+  }
+});
+
+const TestWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const queryClient = createTestQueryClient();
+  
+  return (
+    <QueryClientProvider client={queryClient}>
+      <SocialAuthProvider>
+        {children}
+      </SocialAuthProvider>
+    </QueryClientProvider>
+  );
+};
+
+// Test component for OAuth flow
+function OAuthTestComponent() {
+  const { loginWithProvider, connectProvider, error, isConnecting } = useSocialAuth();
+  
+  return (
+    <div>
+      <div data-testid="error">{error?.message || 'no-error'}</div>
+      <div data-testid="connecting-facebook">{isConnecting.facebook ? 'connecting' : 'not-connecting'}</div>
+      
+      <button onClick={() => loginWithProvider(SocialPlatform.Facebook)}>
+        Login Facebook
+      </button>
+      <button onClick={() => connectProvider(SocialPlatform.Twitter)}>
+        Connect Twitter
+      </button>
+      <button onClick={() => loginWithProvider(SocialPlatform.Instagram, '/dashboard')}>
+        Login Instagram with Redirect
+      </button>
+    </div>
+  );
+}
+
+describe('Social OAuth Integration Tests', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    
+    // Setup default successful fetch responses
+    mockFetch.mockImplementation((url: string, options: any) => {
+      // Initial data loading
+      if (url.includes('/me')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ id: 'user123', name: 'Test User' })
+        });
+      }
+      if (url.includes('/connections')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([])
+        });
+      }
+      if (url.includes('/privacy')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ allowSocialDataCollection: true })
+        });
+      }
+      
+      // OAuth initiation
+      if (url.includes('/connect/') && options?.method === 'POST') {
+        const platform = url.split('/').pop();
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            authorizationUrl: `https://${platform}.com/oauth/authorize?client_id=test&state=secure_state_123`,
+            state: 'secure_state_123',
+            expiresAt: new Date(Date.now() + 600000).toISOString()
+          })
+        });
+      }
+      
+      // OAuth callback
+      if (url.includes('/callback/')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            user: { id: 'social_user_123', name: 'Social User' },
+            connection: { platform: 'facebook', username: 'socialuser' }
+          })
+        });
+      }
+      
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({})
+      });
+    });
+    
+    // Reset window mocks
+    mockWindowOpen.mockReturnValue({
+      close: mockWindowClose,
+      closed: false,
+      location: { href: 'https://facebook.com/oauth' },
+      focus: mockWindowFocus
+    });
+    
+    // Suppress console errors for cleaner test output
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  describe('OAuth Flow Initiation', () => {
+    it('initiates OAuth flow for Facebook', async () => {
+      const user = userEvent.setup();
+      
+      render(
+        <TestWrapper>
+          <OAuthTestComponent />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent('no-error');
+      });
+
+      const loginButton = screen.getByRole('button', { name: /login facebook/i });
+      await user.click(loginButton);
+
+      // Should initiate OAuth request
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/social-auth/connect/facebook',
+          expect.objectContaining({
+            method: 'POST',
+            headers: expect.objectContaining({
+              'Authorization': 'Bearer mock-access-token',
+              'Content-Type': 'application/json'
+            }),
+            body: expect.stringContaining('redirectUrl')
+          })
+        );
+      });
+
+      // Should open OAuth popup
+      expect(mockWindowOpen).toHaveBeenCalledWith(
+        'https://facebook.com/oauth/authorize?client_id=test&state=secure_state_123',
+        'oauth_facebook',
+        'width=600,height=700,scrollbars=yes,resizable=yes'
+      );
+    });
+
+    it('handles different social platforms', async () => {
+      const user = userEvent.setup();
+      const platforms = [
+        { platform: SocialPlatform.Facebook, buttonText: 'Login Facebook' },
+        { platform: SocialPlatform.Twitter, buttonText: 'Connect Twitter' }
+      ];
+
+      for (const { platform, buttonText } of platforms) {
+        render(
+          <TestWrapper>
+            <OAuthTestComponent />
+          </TestWrapper>
+        );
+
+        await waitFor(() => {
+          expect(screen.getByTestId('error')).toHaveTextContent('no-error');
+        });
+
+        const button = screen.getByRole('button', { name: new RegExp(buttonText, 'i') });
+        await user.click(button);
+
+        await waitFor(() => {
+          expect(mockFetch).toHaveBeenCalledWith(
+            expect.stringContaining(`/connect/${platform}`),
+            expect.any(Object)
+          );
+        });
+
+        expect(mockWindowOpen).toHaveBeenCalledWith(
+          expect.stringContaining(`https://${platform}.com/oauth/authorize`),
+          `oauth_${platform}`,
+          'width=600,height=700,scrollbars=yes,resizable=yes'
+        );
+      }
+    });
+
+    it('stores redirect URL for post-login navigation', async () => {
+      const user = userEvent.setup();
+      
+      render(
+        <TestWrapper>
+          <OAuthTestComponent />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent('no-error');
+      });
+
+      const loginButton = screen.getByRole('button', { name: /login instagram with redirect/i });
+      await user.click(loginButton);
+
+      expect(sessionStorageMock.setItem).toHaveBeenCalledWith('socialAuthRedirect', '/dashboard');
+    });
+
+    it('shows loading state during OAuth initiation', async () => {
+      const user = userEvent.setup();
+      
+      // Make the request hang to test loading state
+      let resolvePromise: any;
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes('/connect/facebook')) {
+          return new Promise((resolve) => {
+            resolvePromise = resolve;
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({})
+        });
+      });
+      
+      render(
+        <TestWrapper>
+          <OAuthTestComponent />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('connecting-facebook')).toHaveTextContent('not-connecting');
+      });
+
+      const loginButton = screen.getByRole('button', { name: /login facebook/i });
+      
+      // Start the request
+      act(() => {
+        user.click(loginButton);
+      });
+
+      // Should show loading state
+      await waitFor(() => {
+        expect(screen.getByTestId('connecting-facebook')).toHaveTextContent('connecting');
+      });
+
+      // Complete the request
+      act(() => {
+        resolvePromise({
+          ok: true,
+          json: () => Promise.resolve({
+            authorizationUrl: 'https://facebook.com/oauth/authorize',
+            state: 'test_state'
+          })
+        });
+      });
+
+      // Loading state should clear
+      await waitFor(() => {
+        expect(screen.getByTestId('connecting-facebook')).toHaveTextContent('not-connecting');
+      });
+    });
+  });
+
+  describe('OAuth Popup Management', () => {
+    it('polls popup status and handles completion', async () => {
+      const user = userEvent.setup();
+      let popupClosed = false;
+      
+      mockWindowOpen.mockReturnValue({
+        close: mockWindowClose,
+        get closed() { return popupClosed; },
+        location: { href: 'https://facebook.com/oauth' },
+        focus: mockWindowFocus
+      });
+      
+      render(
+        <TestWrapper>
+          <OAuthTestComponent />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent('no-error');
+      });
+
+      const loginButton = screen.getByRole('button', { name: /login facebook/i });
+      
+      // Start OAuth flow
+      const loginPromise = user.click(loginButton);
+
+      // Verify popup was opened
+      await waitFor(() => {
+        expect(mockWindowOpen).toHaveBeenCalled();
+      });
+
+      // Simulate popup closing (OAuth completion)
+      setTimeout(() => {
+        popupClosed = true;
+      }, 100);
+
+      await loginPromise;
+
+      // Should refresh connections after popup closes
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/social-auth/connections',
+          expect.any(Object)
+        );
+      }, { timeout: 2000 });
+    });
+
+    it('handles popup timeout', async () => {
+      const user = userEvent.setup();
+      
+      // Mock a popup that never closes
+      mockWindowOpen.mockReturnValue({
+        close: mockWindowClose,
+        closed: false, // Never closes
+        location: { href: 'https://facebook.com/oauth' },
+        focus: mockWindowFocus
+      });
+      
+      // Reduce timeout for faster testing
+      jest.useFakeTimers();
+      
+      render(
+        <TestWrapper>
+          <OAuthTestComponent />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent('no-error');
+      });
+
+      const loginButton = screen.getByRole('button', { name: /login facebook/i });
+      
+      // Start OAuth flow
+      user.click(loginButton);
+
+      // Fast-forward time to trigger timeout
+      act(() => {
+        jest.advanceTimersByTime(300000); // 5 minutes
+      });
+
+      // Should handle timeout error
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent(/timed out/i);
+      });
+
+      expect(mockWindowClose).toHaveBeenCalled();
+      
+      jest.useRealTimers();
+    });
+
+    it('handles popup being manually closed', async () => {
+      const user = userEvent.setup();
+      let popupClosed = false;
+      
+      mockWindowOpen.mockReturnValue({
+        close: mockWindowClose,
+        get closed() { return popupClosed; },
+        location: { href: 'https://facebook.com/oauth' },
+        focus: mockWindowFocus
+      });
+      
+      render(
+        <TestWrapper>
+          <OAuthTestComponent />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent('no-error');
+      });
+
+      const loginButton = screen.getByRole('button', { name: /login facebook/i });
+      
+      // Start OAuth flow
+      user.click(loginButton);
+
+      // Simulate user manually closing popup
+      setTimeout(() => {
+        popupClosed = true;
+      }, 100);
+
+      // Should handle this gracefully
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/social-auth/connections',
+          expect.any(Object)
+        );
+      }, { timeout: 2000 });
+    });
+  });
+
+  describe('OAuth Callback Processing', () => {
+    it('processes successful OAuth callback', async () => {
+      render(
+        <TestWrapper>
+          <SocialAuthCallback
+            platform={SocialPlatform.Facebook}
+            code="valid_auth_code"
+            state="secure_state_123"
+          />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.stringContaining('/callback/facebook'),
+          expect.objectContaining({
+            method: 'POST',
+            body: expect.stringContaining('valid_auth_code')
+          })
+        );
+      });
+
+      expect(screen.getByText(/connection successful/i)).toBeInTheDocument();
+    });
+
+    it('handles OAuth callback errors', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes('/callback/')) {
+          return Promise.resolve({
+            ok: false,
+            status: 400,
+            json: () => Promise.resolve({
+              error: 'invalid_grant',
+              error_description: 'The authorization code is invalid or expired'
+            })
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({})
+        });
+      });
+
+      render(
+        <TestWrapper>
+          <SocialAuthCallback
+            platform={SocialPlatform.Facebook}
+            code="invalid_code"
+            state="invalid_state"
+          />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/connection failed/i)).toBeInTheDocument();
+        expect(screen.getByText(/authorization code is invalid/i)).toBeInTheDocument();
+      });
+    });
+
+    it('validates state parameter for CSRF protection', async () => {
+      render(
+        <TestWrapper>
+          <SocialAuthCallback
+            platform={SocialPlatform.Facebook}
+            code="valid_code"
+            state="" // Empty state should be rejected
+          />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/invalid state parameter/i)).toBeInTheDocument();
+      });
+    });
+
+    it('handles missing authorization code', async () => {
+      render(
+        <TestWrapper>
+          <SocialAuthCallback
+            platform={SocialPlatform.Facebook}
+            code="" // Empty code
+            state="valid_state"
+          />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/missing authorization code/i)).toBeInTheDocument();
+      });
+    });
+
+    it('processes OAuth error parameters', async () => {
+      // Simulate OAuth provider returning error
+      const searchParams = new URLSearchParams();
+      searchParams.set('error', 'access_denied');
+      searchParams.set('error_description', 'User denied access');
+      
+      Object.defineProperty(window, 'location', {
+        value: {
+          search: `?${searchParams.toString()}`
+        }
+      });
+
+      render(
+        <TestWrapper>
+          <SocialAuthCallback
+            platform={SocialPlatform.Facebook}
+            error="access_denied"
+            errorDescription="User denied access"
+          />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/user denied access/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Security Features', () => {
+    it('generates secure random state parameters', async () => {
+      const user = userEvent.setup();
+      
+      render(
+        <TestWrapper>
+          <OAuthTestComponent />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent('no-error');
+      });
+
+      const loginButton = screen.getByRole('button', { name: /login facebook/i });
+      await user.click(loginButton);
+
+      // Should use crypto.getRandomValues for state generation
+      expect(window.crypto.getRandomValues).toHaveBeenCalled();
+
+      // State should be included in OAuth URL
+      await waitFor(() => {
+        expect(mockWindowOpen).toHaveBeenCalledWith(
+          expect.stringContaining('state='),
+          expect.any(String),
+          expect.any(String)
+        );
+      });
+    });
+
+    it('includes PKCE parameters for enhanced security', async () => {
+      const user = userEvent.setup();
+      
+      render(
+        <TestWrapper>
+          <OAuthTestComponent />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent('no-error');
+      });
+
+      const loginButton = screen.getByRole('button', { name: /login facebook/i });
+      await user.click(loginButton);
+
+      // Should include PKCE parameters in OAuth request
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            body: expect.stringContaining('code_challenge')
+          })
+        );
+      });
+    });
+
+    it('validates redirect URLs to prevent open redirect attacks', async () => {
+      const user = userEvent.setup();
+      
+      mockFetch.mockImplementation((url: string, options: any) => {
+        if (url.includes('/connect/') && options?.method === 'POST') {
+          const body = JSON.parse(options.body);
+          
+          // Validate that redirectUrl is from same origin
+          if (!body.redirectUrl.startsWith(window.location.origin)) {
+            return Promise.resolve({
+              ok: false,
+              status: 400,
+              json: () => Promise.resolve({
+                error: 'invalid_redirect_uri',
+                error_description: 'Redirect URI must be from same origin'
+              })
+            });
+          }
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({})
+        });
+      });
+
+      render(
+        <TestWrapper>
+          <OAuthTestComponent />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent('no-error');
+      });
+
+      const loginButton = screen.getByRole('button', { name: /login facebook/i });
+      await user.click(loginButton);
+
+      // Should send same-origin redirect URL
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            body: expect.stringContaining(window.location.origin)
+          })
+        );
+      });
+    });
+
+    it('implements proper CSRF protection with state validation', async () => {
+      // Test that state parameter is properly validated on callback
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes('/callback/')) {
+          // Simulate server rejecting mismatched state
+          return Promise.resolve({
+            ok: false,
+            status: 400,
+            json: () => Promise.resolve({
+              error: 'invalid_state',
+              error_description: 'State parameter mismatch - possible CSRF attack'
+            })
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({})
+        });
+      });
+
+      render(
+        <TestWrapper>
+          <SocialAuthCallback
+            platform={SocialPlatform.Facebook}
+            code="valid_code"
+            state="mismatched_state"
+          />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/csrf attack/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('handles network failures during OAuth initiation', async () => {
+      const user = userEvent.setup();
+      
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes('/connect/')) {
+          return Promise.reject(new Error('Network connection failed'));
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({})
+        });
+      });
+
+      render(
+        <TestWrapper>
+          <OAuthTestComponent />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent('no-error');
+      });
+
+      const loginButton = screen.getByRole('button', { name: /login facebook/i });
+      await user.click(loginButton);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent(/network connection failed/i);
+      });
+    });
+
+    it('handles server errors during OAuth initiation', async () => {
+      const user = userEvent.setup();
+      
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes('/connect/')) {
+          return Promise.resolve({
+            ok: false,
+            status: 500,
+            json: () => Promise.resolve({
+              error: 'server_error',
+              error_description: 'Internal server error occurred'
+            })
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({})
+        });
+      });
+
+      render(
+        <TestWrapper>
+          <OAuthTestComponent />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent('no-error');
+      });
+
+      const loginButton = screen.getByRole('button', { name: /login facebook/i });
+      await user.click(loginButton);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).not.toHaveTextContent('no-error');
+      });
+    });
+
+    it('handles popup blocker scenarios', async () => {
+      const user = userEvent.setup();
+      
+      // Mock popup being blocked
+      mockWindowOpen.mockReturnValue(null);
+
+      render(
+        <TestWrapper>
+          <OAuthTestComponent />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent('no-error');
+      });
+
+      const loginButton = screen.getByRole('button', { name: /login facebook/i });
+      await user.click(loginButton);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent(/popup blocked/i);
+      });
+    });
+
+    it('handles rate limiting from OAuth providers', async () => {
+      const user = userEvent.setup();
+      
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes('/connect/')) {
+          return Promise.resolve({
+            ok: false,
+            status: 429,
+            headers: new Map([['Retry-After', '60']]),
+            json: () => Promise.resolve({
+              error: 'rate_limit_exceeded',
+              error_description: 'Too many requests. Try again in 60 seconds.'
+            })
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({})
+        });
+      });
+
+      render(
+        <TestWrapper>
+          <OAuthTestComponent />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent('no-error');
+      });
+
+      const loginButton = screen.getByRole('button', { name: /login facebook/i });
+      await user.click(loginButton);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent(/too many requests/i);
+      });
+    });
+  });
+
+  describe('Cross-Browser Compatibility', () => {
+    it('works with different window.open implementations', async () => {
+      const user = userEvent.setup();
+      
+      // Test with minimal popup object
+      mockWindowOpen.mockReturnValue({
+        closed: false
+      });
+
+      render(
+        <TestWrapper>
+          <OAuthTestComponent />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent('no-error');
+      });
+
+      const loginButton = screen.getByRole('button', { name: /login facebook/i });
+      await user.click(loginButton);
+
+      // Should handle gracefully even with minimal popup object
+      expect(mockWindowOpen).toHaveBeenCalled();
+    });
+
+    it('handles browsers without popup support', async () => {
+      const user = userEvent.setup();
+      
+      // Mock window.open not existing
+      delete (window as any).open;
+
+      render(
+        <TestWrapper>
+          <OAuthTestComponent />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent('no-error');
+      });
+
+      const loginButton = screen.getByRole('button', { name: /login facebook/i });
+      await user.click(loginButton);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error')).toHaveTextContent(/popup not supported/i);
+      });
+    });
+  });
+});

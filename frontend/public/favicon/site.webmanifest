@@ -1,0 +1,22 @@
+{
+    "name": "GeoLeap",
+    "short_name": "GeoLeap",
+    "description": "Find where to watch any movie or TV show across 42 streaming services in 57 countries.",
+    "icons": [
+        {
+            "src": "/favicon/favicon-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/favicon/favicon-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ],
+    "theme_color": "#7c3aed",
+    "background_color": "#ffffff",
+    "display": "standalone",
+    "start_url": "/",
+    "scope": "/"
+}

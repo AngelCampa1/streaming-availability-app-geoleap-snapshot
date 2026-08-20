@@ -1,0 +1,296 @@
+import {
+  generateContentSlug,
+  parseContentSlug,
+  generateCategoryUrl,
+  generateGenreUrl,
+  generateYearUrl,
+  generateSearchUrl,
+  generateCanonicalUrl,
+  generateOgImageUrl,
+  isValidSlug,
+  generateBreadcrumbUrls,
+  getTypeDisplayName,
+  generateSitemapUrls,
+} from '../url-generation';
+
+describe('URL Generation Utils', () => {
+  describe('generateContentSlug', () => {
+    it('should generate basic slug without year', () => {
+      expect(generateContentSlug('123', 'The Dark Knight')).toBe('123-the-dark-knight');
+    });
+
+    it('should generate slug with year', () => {
+      expect(generateContentSlug('123', 'The Dark Knight', 2008)).toBe('123-the-dark-knight-2008');
+    });
+
+    it('should handle special characters', () => {
+      expect(generateContentSlug('456', 'Spider-Man: No Way Home')).toBe('456-spider-man-no-way-home');
+    });
+
+    it('should handle multiple spaces and hyphens', () => {
+      expect(generateContentSlug('789', 'The   Good--Bad & Ugly')).toBe('789-the-good-bad-ugly');
+    });
+
+    it('should handle emojis and unicode', () => {
+      expect(generateContentSlug('999', 'Movie 🎬 Title')).toBe('999-movie-title');
+    });
+
+    it('should handle leading/trailing spaces and hyphens', () => {
+      expect(generateContentSlug('111', '  --Movie Title--  ')).toBe('111-movie-title');
+    });
+  });
+
+  describe('parseContentSlug', () => {
+    it('should parse basic slug', () => {
+      const result = parseContentSlug('123-the-dark-knight');
+      expect(result).toEqual({ id: '123', title: 'The Dark Knight' });
+    });
+
+    it('should parse slug with year', () => {
+      const result = parseContentSlug('123-the-dark-knight-2008');
+      expect(result).toEqual({ id: '123', title: 'The Dark Knight' });
+    });
+
+    it('should handle complex titles', () => {
+      const result = parseContentSlug('456-spider-man-no-way-home-2021');
+      expect(result).toEqual({ id: '456', title: 'Spider Man No Way Home' });
+    });
+
+    it('should throw error for invalid format', () => {
+      expect(() => parseContentSlug('invalid')).toThrow('Invalid content slug format');
+    });
+
+    it('should handle single part after id', () => {
+      const result = parseContentSlug('123-title');
+      expect(result).toEqual({ id: '123', title: 'Title' });
+    });
+  });
+
+  describe('generateCategoryUrl', () => {
+    it('should generate movie URL', () => {
+      expect(generateCategoryUrl('movie')).toBe('/movies');
+    });
+
+    it('should generate TV show URL', () => {
+      expect(generateCategoryUrl('tv-show')).toBe('/tv-shows');
+    });
+
+    it('should generate documentary URL', () => {
+      expect(generateCategoryUrl('documentary')).toBe('/documentaries');
+    });
+
+    it('should fallback to /content for unknown types', () => {
+      expect(generateCategoryUrl('unknown' as any)).toBe('/content');
+    });
+  });
+
+  describe('generateGenreUrl', () => {
+    it('should generate genre URL for movies', () => {
+      expect(generateGenreUrl('movie', 'Action')).toBe('/movies/genre/action');
+    });
+
+    it('should handle special characters in genre', () => {
+      expect(generateGenreUrl('tv-show', 'Sci-Fi & Fantasy')).toBe('/tv-shows/genre/scifi-fantasy');
+    });
+
+    it('should handle spaces in genre', () => {
+      expect(generateGenreUrl('documentary', 'True Crime')).toBe('/documentaries/genre/true-crime');
+    });
+  });
+
+  describe('generateYearUrl', () => {
+    it('should generate year URL for movies', () => {
+      expect(generateYearUrl('movie', 2023)).toBe('/movies/year/2023');
+    });
+
+    it('should generate year URL for TV shows', () => {
+      expect(generateYearUrl('tv-show', 2022)).toBe('/tv-shows/year/2022');
+    });
+  });
+
+  describe('generateSearchUrl', () => {
+    it('should generate basic search URL', () => {
+      expect(generateSearchUrl('batman')).toBe('/search?q=batman');
+    });
+
+    it('should generate search URL with filters', () => {
+      const url = generateSearchUrl('batman', {
+        type: 'movie',
+        genre: 'Action',
+        year: 2022,
+        rating: 8.0,
+      });
+      expect(url).toBe('/search?q=batman&type=movie&genre=Action&year=2022&rating=8');
+    });
+
+    it('should handle empty query with filters', () => {
+      const url = generateSearchUrl('', { type: 'tv-show' });
+      expect(url).toBe('/search?type=tv-show');
+    });
+
+    it('should handle partial filters', () => {
+      const url = generateSearchUrl('test', { genre: 'Drama', year: 2021 });
+      expect(url).toBe('/search?q=test&genre=Drama&year=2021');
+    });
+  });
+
+  describe('generateCanonicalUrl', () => {
+    const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
+
+    beforeEach(() => {
+      process.env.NEXT_PUBLIC_SITE_URL = 'https://streamvpn.com';
+    });
+
+    afterEach(() => {
+      process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+    });
+
+    it('should generate canonical URL', () => {
+      const url = generateCanonicalUrl('movie', '123-batman-2022');
+      expect(url).toBe('https://streamvpn.com/content/movie/123-batman-2022');
+    });
+
+    it('should use fallback URL when env var not set', () => {
+      delete process.env.NEXT_PUBLIC_SITE_URL;
+      const url = generateCanonicalUrl('tv-show', '456-series-title');
+      expect(url).toBe('https://streamvpn.com/content/tv-show/456-series-title');
+    });
+  });
+
+  describe('generateOgImageUrl', () => {
+    const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
+
+    beforeEach(() => {
+      process.env.NEXT_PUBLIC_SITE_URL = 'https://streamvpn.com';
+    });
+
+    afterEach(() => {
+      process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+    });
+
+    it('should generate OG image URL', () => {
+      const url = generateOgImageUrl('123', 'Batman Begins', 'movie');
+      expect(url).toBe('https://streamvpn.com/api/og?id=123&title=Batman+Begins&type=movie');
+    });
+
+    it('should truncate long titles', () => {
+      const longTitle = 'A Very Long Movie Title That Exceeds Sixty Characters For Testing';
+      const url = generateOgImageUrl('456', longTitle, 'tv-show');
+      const expectedTitle = longTitle.substring(0, 60);
+      // URLSearchParams uses '+' instead of '%20' for spaces
+      expect(url).toContain(`title=${expectedTitle.replace(/\s+/g, '+')}`);
+    });
+  });
+
+  describe('isValidSlug', () => {
+    it('should validate correct slug format', () => {
+      expect(isValidSlug('123-movie-title')).toBe(true);
+      expect(isValidSlug('abc-tv-show-2022')).toBe(true);
+    });
+
+    it('should reject invalid formats', () => {
+      expect(isValidSlug('123')).toBe(false); // Too short
+      expect(isValidSlug('123_movie_title')).toBe(false); // Underscores
+      expect(isValidSlug('Movie Title')).toBe(false); // Spaces
+      expect(isValidSlug('123-MOVIE-TITLE')).toBe(false); // Uppercase
+    });
+
+    it('should reject too long slugs', () => {
+      const longSlug = '123-' + 'a'.repeat(200);
+      expect(isValidSlug(longSlug)).toBe(false);
+    });
+  });
+
+  describe('generateBreadcrumbUrls', () => {
+    it('should generate basic breadcrumbs', () => {
+      const breadcrumbs = generateBreadcrumbUrls('movie');
+      expect(breadcrumbs).toEqual([
+        { label: 'Home', url: '/' },
+        { label: 'Movies', url: '/movies' },
+      ]);
+    });
+
+    it('should include genre in breadcrumbs', () => {
+      const breadcrumbs = generateBreadcrumbUrls('tv-show', 'Drama');
+      expect(breadcrumbs).toEqual([
+        { label: 'Home', url: '/' },
+        { label: 'TV Shows', url: '/tv-shows' },
+        { label: 'Drama', url: '/tv-shows/genre/drama' },
+      ]);
+    });
+
+    it('should include year in breadcrumbs', () => {
+      const breadcrumbs = generateBreadcrumbUrls('documentary', undefined, 2023);
+      expect(breadcrumbs).toEqual([
+        { label: 'Home', url: '/' },
+        { label: 'Documentaries', url: '/documentaries' },
+        { label: '2023', url: '/documentaries/year/2023' },
+      ]);
+    });
+
+    it('should include both genre and year', () => {
+      const breadcrumbs = generateBreadcrumbUrls('movie', 'Action', 2022);
+      expect(breadcrumbs).toEqual([
+        { label: 'Home', url: '/' },
+        { label: 'Movies', url: '/movies' },
+        { label: 'Action', url: '/movies/genre/action' },
+        { label: '2022', url: '/movies/year/2022' },
+      ]);
+    });
+  });
+
+  describe('getTypeDisplayName', () => {
+    it('should return display names for content types', () => {
+      expect(getTypeDisplayName('movie')).toBe('Movies');
+      expect(getTypeDisplayName('tv-show')).toBe('TV Shows');
+      expect(getTypeDisplayName('documentary')).toBe('Documentaries');
+      expect(getTypeDisplayName('unknown')).toBe('Content');
+    });
+  });
+
+  describe('generateSitemapUrls', () => {
+    const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
+
+    beforeEach(() => {
+      process.env.NEXT_PUBLIC_SITE_URL = 'https://streamvpn.com';
+    });
+
+    afterEach(() => {
+      process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+    });
+
+    it('should generate sitemap URLs', () => {
+      const contents = [
+        { id: '123', title: 'Batman', releaseYear: 2022 },
+        { id: '456', title: 'Superman', releaseYear: 2021 },
+      ];
+
+      const sitemapUrls = generateSitemapUrls(contents, 'movie');
+
+      expect(sitemapUrls).toHaveLength(2);
+      expect(sitemapUrls[0].url).toBe('https://streamvpn.com/content/movie/123-batman-2022');
+      expect(sitemapUrls[1].url).toBe('https://streamvpn.com/content/movie/456-superman-2021');
+    });
+
+    it('should calculate priority based on release year', () => {
+      const currentYear = new Date().getFullYear();
+      const contents = [
+        { id: '123', title: 'New Movie', releaseYear: currentYear },
+        { id: '456', title: 'Old Movie', releaseYear: 2000 },
+      ];
+
+      const sitemapUrls = generateSitemapUrls(contents, 'movie');
+
+      expect(sitemapUrls[0].priority).toBeGreaterThan(sitemapUrls[1].priority);
+      expect(sitemapUrls[0].priority).toBeCloseTo(1.0, 1);
+    });
+
+    it('should handle content without release year', () => {
+      const contents = [{ id: '123', title: 'Movie' }];
+      const sitemapUrls = generateSitemapUrls(contents, 'movie');
+
+      expect(sitemapUrls).toHaveLength(1);
+      expect(sitemapUrls[0].priority).toBeGreaterThanOrEqual(0.3);
+    });
+  });
+});

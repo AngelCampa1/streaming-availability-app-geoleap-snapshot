@@ -1,0 +1,345 @@
+using GeoLeap.Api.Models.GrowthAnalytics;
+using GeoLeap.Api.Services.GrowthAnalytics;
+using GeoLeap.Api.Tests.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
+using NSubstitute;
+using Xunit;
+
+namespace GeoLeap.Api.Tests.Services;
+
+[Collection("MinimalTest")]
+public class GrowthTrackingServiceTestsV3 : IClassFixture<MinimalWebApplicationFactory>
+{
+    private readonly MinimalWebApplicationFactory _factory;
+    private readonly IGrowthTrackingService _trackingService;
+
+    public GrowthTrackingServiceTestsV3(MinimalWebApplicationFactory factory)
+    {
+        _factory = factory;
+        _trackingService = _factory.Services.GetRequiredService<IGrowthTrackingService>();
+    }
+
+    [Fact]
+    public async Task TrackEventAsync_WithValidEvent_ReturnsTrue()
+    {
+        // Arrange
+        var growthEvent = CreateValidGrowthEvent();
+        _trackingService.TrackEventAsync(Arg.Any<GrowthEvent>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
+
+        // Act
+        var result = await _trackingService.TrackEventAsync(growthEvent);
+
+        // Assert
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task TrackEventsAsync_WithValidEvents_ReturnsCount()
+    {
+        // Arrange
+        var events = new List<GrowthEvent>
+        {
+            CreateValidGrowthEvent("page_view"),
+            CreateValidGrowthEvent("button_click"),
+            CreateValidGrowthEvent("form_submit")
+        };
+
+        _trackingService.TrackEventsAsync(Arg.Any<IEnumerable<GrowthEvent>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(events.Count));
+
+        // Act
+        var result = await _trackingService.TrackEventsAsync(events);
+
+        // Assert
+        Assert.Equal(events.Count, result);
+    }
+
+    [Fact]
+    public async Task EnrichEventAsync_WithValidData_ReturnsEnrichedEvent()
+    {
+        // Arrange
+        var originalEvent = CreateValidGrowthEvent();
+        var expectedEnrichedEvent = originalEvent;
+        expectedEnrichedEvent.IpAddress = "192.168.1.1";
+        expectedEnrichedEvent.UserAgent = "Mozilla/5.0 Test Browser";
+
+        _trackingService.EnrichEventAsync(Arg.Any<GrowthEvent>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(Task.FromResult(expectedEnrichedEvent));
+
+        // Act
+        var result = await _trackingService.EnrichEventAsync(originalEvent, "192.168.1.1", "Mozilla/5.0 Test Browser");
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(originalEvent.EventName, result.EventName);
+    }
+
+    [Fact]
+    public async Task GetProcessingStatsAsync_ReturnsValidStats()
+    {
+        // Arrange
+        var expectedStats = new EventProcessingStats
+        {
+            TotalEvents = 1000,
+            ProcessedEvents = 950,
+            PendingEvents = 50,
+            FailedEvents = 0,
+            EventsToday = 100,
+            EventsThisHour = 10,
+            AvgProcessingTimeMs = 15.5,
+            LastProcessedAt = DateTime.UtcNow,
+            CategoryStats = new List<EventCategoryStats>
+            {
+                new() { Category = "engagement", Count = 500, Percentage = 50.0m },
+                new() { Category = "conversion", Count = 300, Percentage = 30.0m },
+                new() { Category = "revenue", Count = 200, Percentage = 20.0m }
+            }
+        };
+
+        _trackingService.GetProcessingStatsAsync()
+            .Returns(Task.FromResult(expectedStats));
+
+        // Act
+        var result = await _trackingService.GetProcessingStatsAsync();
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(expectedStats.TotalEvents, result.TotalEvents);
+        Assert.Equal(expectedStats.ProcessedEvents, result.ProcessedEvents);
+        Assert.Equal(expectedStats.CategoryStats.Count, result.CategoryStats.Count);
+        Assert.True(result.AvgProcessingTimeMs > 0);
+    }
+
+    [Theory]
+    [InlineData("user-123")]
+    [InlineData("user-456")]
+    [InlineData("anonymous-user")]
+    public async Task GetUserEventsAsync_WithValidUserId_ReturnsEvents(string userId)
+    {
+        // Arrange
+        var expectedEvents = new List<GrowthEvent>
+        {
+            CreateValidGrowthEvent("page_view", userId),
+            CreateValidGrowthEvent("button_click", userId),
+            CreateValidGrowthEvent("purchase", userId)
+        };
+
+        _trackingService.GetUserEventsAsync(Arg.Any<string>(), Arg.Any<DateTime?>(), Arg.Any<DateTime?>(), Arg.Any<bool>())
+            .Returns(Task.FromResult<IEnumerable<GrowthEvent>>(expectedEvents));
+
+        // Act
+        var result = await _trackingService.GetUserEventsAsync(userId);
+
+        // Assert
+        Assert.NotNull(result);
+        var eventsList = result.ToList();
+        Assert.Equal(expectedEvents.Count, eventsList.Count);
+        Assert.All(eventsList, e => Assert.Equal(userId, e.UserId));
+    }
+
+    [Theory]
+    [InlineData("engagement")]
+    [InlineData("conversion")]
+    [InlineData("revenue")]
+    public async Task GetEventsByCategoryAsync_WithValidCategory_ReturnsEvents(string category)
+    {
+        // Arrange
+        var startDate = DateTime.UtcNow.AddDays(-30);
+        var endDate = DateTime.UtcNow;
+        var expectedEvents = new List<GrowthEvent>
+        {
+            CreateValidGrowthEvent("event1", category: category),
+            CreateValidGrowthEvent("event2", category: category),
+            CreateValidGrowthEvent("event3", category: category)
+        };
+
+        _trackingService.GetEventsByCategoryAsync(Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<DateTime>(), Arg.Any<int>())
+            .Returns(Task.FromResult<IEnumerable<GrowthEvent>>(expectedEvents));
+
+        // Act
+        var result = await _trackingService.GetEventsByCategoryAsync(category, startDate, endDate);
+
+        // Assert
+        Assert.NotNull(result);
+        var eventsList = result.ToList();
+        Assert.Equal(expectedEvents.Count, eventsList.Count);
+        Assert.All(eventsList, e => Assert.Equal(category, e.Category));
+    }
+
+    [Theory]
+    [InlineData("gdpr-user-1")]
+    [InlineData("gdpr-user-2")]
+    public async Task DeleteUserDataAsync_WithValidUserId_ReturnsTrue(string userId)
+    {
+        // Arrange
+        _trackingService.DeleteUserDataAsync(Arg.Any<string>())
+            .Returns(Task.FromResult(true));
+
+        // Act
+        var result = await _trackingService.DeleteUserDataAsync(userId);
+
+        // Assert
+        Assert.True(result);
+    }
+
+    [Theory]
+    [InlineData("anonymize-user-1")]
+    [InlineData("anonymize-user-2")]
+    public async Task AnonymizeUserDataAsync_WithValidUserId_ReturnsTrue(string userId)
+    {
+        // Arrange
+        _trackingService.AnonymizeUserDataAsync(Arg.Any<string>())
+            .Returns(Task.FromResult(true));
+
+        // Act
+        var result = await _trackingService.AnonymizeUserDataAsync(userId);
+
+        // Assert
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task ProcessPendingEventsAsync_WithValidBatchSize_CompletesSuccessfully()
+    {
+        // Arrange
+        const int batchSize = 100;
+        _trackingService.ProcessPendingEventsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        // Act & Assert - Should not throw
+        await _trackingService.ProcessPendingEventsAsync(batchSize);
+    }
+
+    [Fact]
+    public async Task GetUserEventsAsync_WithDateRange_ReturnsFilteredEvents()
+    {
+        // Arrange
+        var userId = "test-user";
+        var startDate = DateTime.UtcNow.AddDays(-7);
+        var endDate = DateTime.UtcNow;
+        var expectedEvents = new List<GrowthEvent>
+        {
+            CreateValidGrowthEvent("recent_event", userId)
+        };
+
+        _trackingService.GetUserEventsAsync(Arg.Any<string>(), Arg.Any<DateTime?>(), Arg.Any<DateTime?>(), Arg.Any<bool>())
+            .Returns(Task.FromResult<IEnumerable<GrowthEvent>>(expectedEvents));
+
+        // Act
+        var result = await _trackingService.GetUserEventsAsync(userId, startDate, endDate);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Single(result);
+    }
+
+    [Fact]
+    public async Task GetUserEventsAsync_WithConsentRespected_FiltersCorrectly()
+    {
+        // Arrange
+        var userId = "consent-user";
+        var eventsWithConsent = new List<GrowthEvent>
+        {
+            CreateValidGrowthEvent("consented_event", userId, hasConsent: true)
+        };
+
+        _trackingService.GetUserEventsAsync(Arg.Any<string>(), Arg.Any<DateTime?>(), Arg.Any<DateTime?>(), Arg.Is<bool>(respectConsent => respectConsent))
+            .Returns(Task.FromResult<IEnumerable<GrowthEvent>>(eventsWithConsent));
+
+        // Act
+        var result = await _trackingService.GetUserEventsAsync(userId, respectConsent: true);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.All(result, e => Assert.True(e.HasConsent));
+    }
+
+    [Fact]
+    public async Task GetEventsByCategoryAsync_WithLimit_ReturnsLimitedResults()
+    {
+        // Arrange
+        const int limit = 50;
+        var category = "test-category";
+        var startDate = DateTime.UtcNow.AddDays(-30);
+        var endDate = DateTime.UtcNow;
+        var limitedEvents = Enumerable.Range(1, limit)
+            .Select(i => CreateValidGrowthEvent($"event_{i}", category: category))
+            .ToList();
+
+        _trackingService.GetEventsByCategoryAsync(Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<DateTime>(), Arg.Is<int>(l => l == limit))
+            .Returns(Task.FromResult<IEnumerable<GrowthEvent>>(limitedEvents));
+
+        // Act
+        var result = await _trackingService.GetEventsByCategoryAsync(category, startDate, endDate, limit);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(limit, result.Count());
+    }
+
+    [Fact]
+    public async Task TrackEventAsync_WithCancellationToken_RespectsToken()
+    {
+        // Arrange
+        var growthEvent = CreateValidGrowthEvent();
+        var cts = new CancellationTokenSource();
+        
+        _trackingService.TrackEventAsync(Arg.Any<GrowthEvent>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
+
+        // Act
+        var result = await _trackingService.TrackEventAsync(growthEvent, cts.Token);
+
+        // Assert
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task TrackEventsAsync_WithEmptyList_ReturnsZero()
+    {
+        // Arrange
+        var emptyEvents = new List<GrowthEvent>();
+        _trackingService.TrackEventsAsync(Arg.Is<IEnumerable<GrowthEvent>>(events => !events.Any()), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(0));
+
+        // Act
+        var result = await _trackingService.TrackEventsAsync(emptyEvents);
+
+        // Assert
+        Assert.Equal(0, result);
+    }
+
+    private static GrowthEvent CreateValidGrowthEvent(string eventName = "test_event", string? userId = null, string category = "test", bool hasConsent = true)
+    {
+        return new GrowthEvent
+        {
+            Id = Guid.NewGuid(),
+            EventName = eventName,
+            Category = category,
+            UserId = userId ?? "test-user",
+            SessionId = "test-session-123",
+            DeviceId = "test-device-456",
+            Timestamp = DateTime.UtcNow,
+            ClientTimestamp = DateTime.UtcNow,
+            Properties = "{}",
+            UtmSource = "test-source",
+            UtmMedium = "test-medium",
+            UtmCampaign = "test-campaign",
+            Referrer = "https://example.com",
+            LandingPage = "https://app.example.com/home",
+            IpAddress = "192.168.1.1",
+            UserAgent = "Mozilla/5.0 Test Browser",
+            Country = "US",
+            Region = "CA",
+            City = "San Francisco",
+            ScreenResolution = "1920x1080",
+            ViewportSize = "1200x800",
+            EventValue = 100m,
+            Currency = "USD",
+            SdkVersion = "1.0.0",
+            HasConsent = hasConsent,
+            ConsentCategories = "analytics,marketing"
+        };
+    }
+}

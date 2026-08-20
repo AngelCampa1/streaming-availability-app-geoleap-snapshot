@@ -1,0 +1,337 @@
+{
+  "autoScalingPolicies": {
+    "version": "2.0",
+    "description": "Auto-scaling policies for 50K+ page programmatic SEO system targeting 99.5% uptime",
+    "targetMetrics": {
+      "cpuUtilization": {
+        "scaleUpThreshold": 70,
+        "scaleDownThreshold": 30,
+        "evaluationPeriod": "PT5M",
+        "scaleUpCooldown": "PT5M",
+        "scaleDownCooldown": "PT10M"
+      },
+      "memoryUtilization": {
+        "scaleUpThreshold": 80,
+        "scaleDownThreshold": 40,
+        "evaluationPeriod": "PT5M",
+        "scaleUpCooldown": "PT5M",
+        "scaleDownCooldown": "PT10M"
+      },
+      "httpQueueLength": {
+        "scaleUpThreshold": 100,
+        "scaleDownThreshold": 10,
+        "evaluationPeriod": "PT3M",
+        "scaleUpCooldown": "PT3M",
+        "scaleDownCooldown": "PT8M"
+      },
+      "responseTime": {
+        "scaleUpThreshold": 2000,
+        "evaluationPeriod": "PT3M",
+        "scaleUpCooldown": "PT3M"
+      },
+      "pageGenerationQueue": {
+        "scaleUpThreshold": 500,
+        "scaleDownThreshold": 50,
+        "evaluationPeriod": "PT2M",
+        "scaleUpCooldown": "PT2M",
+        "scaleDownCooldown": "PT10M"
+      },
+      "errorRate": {
+        "scaleUpThreshold": 5.0,
+        "evaluationPeriod": "PT3M",
+        "scaleUpCooldown": "PT3M"
+      }
+    },
+    "scalingRules": [
+      {
+        "name": "CPU High Load Scale Up",
+        "condition": "avg(cpu_percent) > 70 for 5 minutes",
+        "action": {
+          "type": "scale_out",
+          "increment": 2,
+          "maxInstances": 20,
+          "cooldown": "PT5M"
+        },
+        "priority": "high",
+        "enabled": true
+      },
+      {
+        "name": "Memory Pressure Scale Up",
+        "condition": "avg(memory_percent) > 80 for 5 minutes",
+        "action": {
+          "type": "scale_out",
+          "increment": 2,
+          "maxInstances": 20,
+          "cooldown": "PT5M"
+        },
+        "priority": "high",
+        "enabled": true
+      },
+      {
+        "name": "Queue Length Scale Up",
+        "condition": "avg(http_queue_length) > 100 for 3 minutes",
+        "action": {
+          "type": "scale_out",
+          "increment": 3,
+          "maxInstances": 20,
+          "cooldown": "PT3M"
+        },
+        "priority": "critical",
+        "enabled": true
+      },
+      {
+        "name": "Response Time Scale Up",
+        "condition": "avg(response_time_ms) > 2000 for 3 minutes",
+        "action": {
+          "type": "scale_out",
+          "increment": 2,
+          "maxInstances": 20,
+          "cooldown": "PT3M"
+        },
+        "priority": "high",
+        "enabled": true
+      },
+      {
+        "name": "Page Generation Queue Scale Up",
+        "condition": "page_generation_queue_length > 500 for 2 minutes",
+        "action": {
+          "type": "scale_out",
+          "increment": 3,
+          "maxInstances": 20,
+          "cooldown": "PT2M"
+        },
+        "priority": "critical",
+        "enabled": true
+      },
+      {
+        "name": "Error Rate Scale Up",
+        "condition": "error_rate_percent > 5 for 3 minutes",
+        "action": {
+          "type": "scale_out",
+          "increment": 2,
+          "maxInstances": 20,
+          "cooldown": "PT3M"
+        },
+        "priority": "high",
+        "enabled": true
+      },
+      {
+        "name": "Low Load Scale Down",
+        "condition": "avg(cpu_percent) < 30 AND avg(memory_percent) < 40 AND avg(http_queue_length) < 10 for 10 minutes",
+        "action": {
+          "type": "scale_in",
+          "decrement": 1,
+          "minInstances": 3,
+          "cooldown": "PT10M"
+        },
+        "priority": "low",
+        "enabled": true
+      },
+      {
+        "name": "Peak Hour Preemptive Scale Up",
+        "condition": "time_of_day between 08:00 AND 22:00 UTC AND weekday",
+        "action": {
+          "type": "scale_out",
+          "targetInstances": 6,
+          "maxInstances": 20,
+          "cooldown": "PT30M"
+        },
+        "priority": "medium",
+        "enabled": true,
+        "scheduleBasedScaling": true
+      },
+      {
+        "name": "Off-Peak Scale Down",
+        "condition": "time_of_day between 23:00 AND 07:00 UTC AND weekday",
+        "action": {
+          "type": "scale_in",
+          "targetInstances": 3,
+          "minInstances": 3,
+          "cooldown": "PT60M"
+        },
+        "priority": "medium",
+        "enabled": true,
+        "scheduleBasedScaling": true
+      }
+    ],
+    "instanceConfiguration": {
+      "minInstances": 3,
+      "maxInstances": 20,
+      "targetInstances": 5,
+      "instanceType": "P2V3",
+      "healthCheckPath": "/health",
+      "healthCheckInterval": "PT30S",
+      "healthCheckTimeout": "PT10S",
+      "unhealthyThreshold": 3,
+      "healthyThreshold": 2
+    },
+    "loadBalancerConfiguration": {
+      "algorithm": "least_connections",
+      "sessionAffinity": false,
+      "healthCheck": {
+        "enabled": true,
+        "path": "/health",
+        "interval": 30,
+        "timeout": 10,
+        "healthyThreshold": 2,
+        "unhealthyThreshold": 3
+      },
+      "connectionDraining": {
+        "enabled": true,
+        "drainTimeout": 300
+      }
+    },
+    "circuitBreakerConfiguration": {
+      "enabled": true,
+      "failureThreshold": 50,
+      "openTimeout": "PT60S",
+      "halfOpenMaxCalls": 10,
+      "halfOpenMaxRetries": 3,
+      "samplingDuration": "PT600S",
+      "minimumThroughput": 10
+    },
+    "adaptiveScaling": {
+      "enabled": true,
+      "learningEnabled": true,
+      "predictionWindow": "PT30M",
+      "confidenceThreshold": 0.8,
+      "historicalDataPeriod": "P7D",
+      "machinelearningModel": {
+        "type": "time_series_forecasting",
+        "algorithm": "ARIMA",
+        "retrainInterval": "P1D",
+        "features": [
+          "cpu_utilization",
+          "memory_utilization",
+          "request_count",
+          "response_time",
+          "queue_length",
+          "time_of_day",
+          "day_of_week"
+        ]
+      }
+    },
+    "alerting": {
+      "enabled": true,
+      "channels": ["email", "slack", "webhook"],
+      "alerts": [
+        {
+          "name": "High CPU Usage",
+          "condition": "avg(cpu_percent) > 85 for 5 minutes",
+          "severity": "warning",
+          "actions": ["email", "slack"]
+        },
+        {
+          "name": "Critical Memory Usage",
+          "condition": "avg(memory_percent) > 90 for 3 minutes",
+          "severity": "critical",
+          "actions": ["email", "slack", "webhook"]
+        },
+        {
+          "name": "High Queue Length",
+          "condition": "avg(http_queue_length) > 200 for 3 minutes",
+          "severity": "critical",
+          "actions": ["email", "slack", "webhook"]
+        },
+        {
+          "name": "Response Time Degradation",
+          "condition": "p95(response_time_ms) > 3000 for 5 minutes",
+          "severity": "warning",
+          "actions": ["email", "slack"]
+        },
+        {
+          "name": "High Error Rate",
+          "condition": "error_rate_percent > 10 for 5 minutes",
+          "severity": "critical",
+          "actions": ["email", "slack", "webhook"]
+        },
+        {
+          "name": "Scaling Event",
+          "condition": "instance_count_change != 0",
+          "severity": "info",
+          "actions": ["slack"]
+        },
+        {
+          "name": "Page Generation Backlog",
+          "condition": "page_generation_queue_length > 1000 for 5 minutes",
+          "severity": "warning",
+          "actions": ["email", "slack"]
+        }
+      ]
+    },
+    "costOptimization": {
+      "enabled": true,
+      "strategies": [
+        {
+          "name": "Spot Instance Usage",
+          "enabled": false,
+          "percentage": 30,
+          "fallbackToOnDemand": true
+        },
+        {
+          "name": "Reserved Instance Planning",
+          "enabled": true,
+          "baselineInstances": 3,
+          "reservationPeriod": "1year"
+        },
+        {
+          "name": "Scheduled Scaling",
+          "enabled": true,
+          "peakHours": {
+            "start": "08:00",
+            "end": "22:00",
+            "timezone": "UTC",
+            "targetInstances": 6
+          },
+          "offPeakHours": {
+            "start": "22:00",
+            "end": "08:00",
+            "timezone": "UTC",
+            "targetInstances": 3
+          }
+        }
+      ]
+    },
+    "performanceTargets": {
+      "responseTime": {
+        "p50": 500,
+        "p95": 1500,
+        "p99": 3000
+      },
+      "throughput": {
+        "requestsPerSecond": 1000,
+        "pagesPerHour": 5000
+      },
+      "availability": {
+        "uptime": 99.5,
+        "maxDowntimePerMonth": "PT3H38M24S"
+      },
+      "resourceUtilization": {
+        "optimalCpuRange": [40, 70],
+        "optimalMemoryRange": [50, 80],
+        "maxQueueLength": 100
+      }
+    },
+    "monitoring": {
+      "metrics": [
+        "cpu_percent",
+        "memory_percent",
+        "disk_io_percent",
+        "network_in_mbps",
+        "network_out_mbps",
+        "http_queue_length",
+        "response_time_ms",
+        "request_count_per_second",
+        "error_rate_percent",
+        "instance_count",
+        "page_generation_queue_length",
+        "page_generation_rate_per_hour",
+        "cache_hit_rate_percent",
+        "database_connection_count"
+      ],
+      "aggregationPeriod": "PT1M",
+      "retentionPeriod": "P30D",
+      "dashboardRefreshInterval": "PT30S"
+    }
+  }
+}

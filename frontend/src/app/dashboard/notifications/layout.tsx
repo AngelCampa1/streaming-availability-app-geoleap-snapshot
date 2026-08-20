@@ -1,0 +1,14 @@
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'Notifications',
+  description: 'View your streaming availability notifications and alerts.',
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
+
+export default function NotificationsLayout({ children }: { children: React.ReactNode }) {
+  return children;
+}

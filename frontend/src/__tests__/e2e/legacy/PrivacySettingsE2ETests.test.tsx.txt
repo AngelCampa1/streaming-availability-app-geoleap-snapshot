@@ -1,0 +1,676 @@
+/**
+ * End-to-End Privacy Settings Management Tests
+ * Tests complete GDPR compliance and privacy control workflows
+ */
+
+import { test, expect, Page, BrowserContext } from '@playwright/test';
+
+// Test configuration
+const BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:3000';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+// Test user data
+const TEST_USER = {
+  id: 'user_123',
+  email: 'privacy.test@example.com',
+  name: 'Privacy Test User',
+  dateOfBirth: '1990-01-01'
+};
+
+// Privacy consent types
+const CONSENT_TYPES = {
+  SOCIAL_DATA_COLLECTION: 'social_data_collection',
+  FRIEND_DISCOVERY: 'friend_discovery',
+  SOCIAL_RECOMMENDATIONS: 'social_recommendations',
+  ACTIVITY_TRACKING: 'activity_tracking',
+  MARKETING_COMMUNICATIONS: 'marketing_communications',
+  ANALYTICS: 'analytics',
+  THIRD_PARTY_SHARING: 'third_party_sharing'
+};
+
+test.describe('Privacy Settings E2E Management', () => {
+  let page: Page;
+  let context: BrowserContext;
+
+  test.beforeEach(async ({ browser }) => {
+    context = await browser.newContext({
+      viewport: { width: 1280, height: 720 },
+      permissions: ['notifications']
+    });
+    
+    page = await context.newPage();
+    
+    // Mock privacy API endpoints
+    await page.route(`${API_URL}/api/privacy/**`, async route => {
+      const method = route.request().method();
+      const url = route.request().url();
+      
+      if (method === 'GET' && url.includes('/consent-history')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            {
+              id: 'consent_1',
+              userId: TEST_USER.id,
+              consentType: CONSENT_TYPES.SOCIAL_DATA_COLLECTION,
+              granted: true,
+              timestamp: new Date(Date.now() - 86400000).toISOString(),
+              version: '1.0',
+              legalBasis: 'GDPR Article 6(1)(a)',
+              expiresAt: new Date(Date.now() + 31536000000).toISOString()
+            },
+            {
+              id: 'consent_2',
+              userId: TEST_USER.id,
+              consentType: CONSENT_TYPES.MARKETING_COMMUNICATIONS,
+              granted: false,
+              timestamp: new Date(Date.now() - 172800000).toISOString(),
+              version: '1.0',
+              legalBasis: 'GDPR Article 6(1)(a)'
+            }
+          ])
+        });
+      } else if (method === 'GET' && url.includes('/current-settings')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            allowSocialDataCollection: true,
+            allowFriendDiscovery: false,
+            allowSocialRecommendations: true,
+            allowActivityTracking: false,
+            allowMarketingCommunications: false,
+            allowAnalytics: true,
+            allowThirdPartySharing: false,
+            gdprLawfulBasis: 'GDPR Article 6(1)(a)',
+            consentVersion: '2.0',
+            lastUpdated: new Date().toISOString()
+          })
+        });
+      } else if (method === 'PUT' && url.includes('/settings')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            updatedAt: new Date().toISOString(),
+            consentId: `consent_${Date.now()}`
+          })
+        });
+      } else if (method === 'POST' && url.includes('/export-data')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            exportId: 'export_123',
+            status: 'processing',
+            estimatedCompletion: new Date(Date.now() + 300000).toISOString()
+          })
+        });
+      } else if (method === 'DELETE' && url.includes('/delete-account')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            deletionId: 'deletion_123',
+            status: 'scheduled',
+            gracePeriodEnds: new Date(Date.now() + 2592000000).toISOString()
+          })
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true })
+        });
+      }
+    });
+
+    // Login user
+    await page.goto(`${BASE_URL}/login`);
+    await page.fill('[data-testid="email-input"]', TEST_USER.email);
+    await page.fill('[data-testid="password-input"]', 'password123');
+    await page.click('[data-testid="login-button"]');
+    await page.waitForURL('**/dashboard');
+  });
+
+  test.afterEach(async () => {
+    await context.close();
+  });
+
+  test('Privacy Dashboard Navigation and Overview', async () => {
+    // Navigate to privacy settings
+    await page.goto(`${BASE_URL}/profile/privacy`);
+    
+    // Verify privacy dashboard loads
+    const privacyDashboard = page.locator('[data-testid="privacy-dashboard"]');
+    await expect(privacyDashboard).toBeVisible();
+    
+    // Verify privacy overview section
+    const privacyOverview = page.locator('[data-testid="privacy-overview"]');
+    await expect(privacyOverview).toBeVisible();
+    
+    // Check privacy score display
+    const privacyScore = page.locator('[data-testid="privacy-score"]');
+    await expect(privacyScore).toBeVisible();
+    await expect(privacyScore).toContainText(/\d+/); // Should show numeric score
+    
+    // Verify consent status summary
+    const consentSummary = page.locator('[data-testid="consent-summary"]');
+    await expect(consentSummary).toBeVisible();
+    
+    // Check active consents count
+    const activeConsents = page.locator('[data-testid="active-consents-count"]');
+    await expect(activeConsents).toBeVisible();
+    
+    // Verify last updated timestamp
+    const lastUpdated = page.locator('[data-testid="privacy-last-updated"]');
+    await expect(lastUpdated).toBeVisible();
+  });
+
+  test('Social Data Collection Consent Management', async () => {
+    await page.goto(`${BASE_URL}/profile/privacy`);
+    
+    // Navigate to social privacy section
+    const socialPrivacyTab = page.locator('[data-testid="social-privacy-tab"]');
+    await socialPrivacyTab.click();
+    
+    // Verify social privacy controls
+    const socialPrivacySection = page.locator('[data-testid="social-privacy-section"]');
+    await expect(socialPrivacySection).toBeVisible();
+    
+    // Test social data collection toggle
+    const dataCollectionToggle = page.locator('[data-testid="social-data-collection-toggle"]');
+    await expect(dataCollectionToggle).toBeVisible();
+    
+    // Verify current state
+    const isEnabled = await dataCollectionToggle.isChecked();
+    expect(isEnabled).toBe(true);
+    
+    // Toggle off social data collection
+    await dataCollectionToggle.uncheck();
+    
+    // Verify confirmation dialog
+    const confirmationDialog = page.locator('[data-testid="consent-change-confirmation"]');
+    await expect(confirmationDialog).toBeVisible();
+    await expect(confirmationDialog).toContainText('social data collection');
+    
+    // Confirm change
+    const confirmButton = page.locator('[data-testid="confirm-consent-change"]');
+    await confirmButton.click();
+    
+    // Verify success notification
+    const successNotification = page.locator('[data-testid="consent-update-success"]');
+    await expect(successNotification).toBeVisible();
+    await expect(successNotification).toContainText('Privacy settings updated');
+    
+    // Verify toggle state changed
+    await expect(dataCollectionToggle).not.toBeChecked();
+  });
+
+  test('Friend Discovery Privacy Controls', async () => {
+    await page.goto(`${BASE_URL}/profile/privacy/social`);
+    
+    // Test friend discovery settings
+    const friendDiscoverySection = page.locator('[data-testid="friend-discovery-section"]');
+    await expect(friendDiscoverySection).toBeVisible();
+    
+    // Configure friend discovery options
+    const phoneDiscoveryToggle = page.locator('[data-testid="phone-discovery-toggle"]');
+    const emailDiscoveryToggle = page.locator('[data-testid="email-discovery-toggle"]');
+    const socialNetworkToggle = page.locator('[data-testid="social-network-discovery-toggle"]');
+    
+    await phoneDiscoveryToggle.check();
+    await emailDiscoveryToggle.check();
+    await socialNetworkToggle.uncheck();
+    
+    // Configure visibility settings
+    const visibilitySelect = page.locator('[data-testid="discovery-visibility-select"]');
+    await visibilitySelect.selectOption('friends-only');
+    
+    // Set age restrictions
+    const ageRestrictionToggle = page.locator('[data-testid="age-restriction-toggle"]');
+    await ageRestrictionToggle.check();
+    
+    const minAgeInput = page.locator('[data-testid="minimum-age-input"]');
+    await minAgeInput.fill('18');
+    
+    // Save friend discovery settings
+    const saveButton = page.locator('[data-testid="save-friend-discovery-settings"]');
+    await saveButton.click();
+    
+    // Verify save confirmation
+    const saveConfirmation = page.locator('[data-testid="friend-discovery-saved"]');
+    await expect(saveConfirmation).toBeVisible();
+    
+    // Verify impact notice
+    const impactNotice = page.locator('[data-testid="discovery-impact-notice"]');
+    await expect(impactNotice).toBeVisible();
+    await expect(impactNotice).toContainText('affect how friends can find you');
+  });
+
+  test('Activity Tracking Consent and Granular Controls', async () => {
+    await page.goto(`${BASE_URL}/profile/privacy/activity`);
+    
+    // Verify activity tracking section
+    const activitySection = page.locator('[data-testid="activity-tracking-section"]');
+    await expect(activitySection).toBeVisible();
+    
+    // Test granular activity controls
+    const locationTrackingToggle = page.locator('[data-testid="location-tracking-toggle"]');
+    const behaviorTrackingToggle = page.locator('[data-testid="behavior-tracking-toggle"]');
+    const interactionTrackingToggle = page.locator('[data-testid="interaction-tracking-toggle"]');
+    const performanceTrackingToggle = page.locator('[data-testid="performance-tracking-toggle"]');
+    
+    // Configure specific tracking options
+    await locationTrackingToggle.check();
+    await behaviorTrackingToggle.uncheck();
+    await interactionTrackingToggle.check();
+    await performanceTrackingToggle.check();
+    
+    // Set data retention period
+    const retentionSelect = page.locator('[data-testid="activity-retention-select"]');
+    await retentionSelect.selectOption('6-months');
+    
+    // Configure data sharing restrictions
+    const thirdPartyToggle = page.locator('[data-testid="third-party-activity-sharing"]');
+    await thirdPartyToggle.uncheck();
+    
+    // Save activity settings
+    const saveActivityButton = page.locator('[data-testid="save-activity-settings"]');
+    await saveActivityButton.click();
+    
+    // Verify legal basis information
+    const legalBasisInfo = page.locator('[data-testid="activity-legal-basis"]');
+    await expect(legalBasisInfo).toBeVisible();
+    await expect(legalBasisInfo).toContainText('GDPR Article 6');
+    
+    // Verify data purpose explanation
+    const dataPurpose = page.locator('[data-testid="activity-data-purpose"]');
+    await expect(dataPurpose).toBeVisible();
+    await expect(dataPurpose).toContainText('improve your experience');
+  });
+
+  test('Marketing Communications Preferences', async () => {
+    await page.goto(`${BASE_URL}/profile/privacy/communications`);
+    
+    // Verify marketing communications section
+    const marketingSection = page.locator('[data-testid="marketing-communications-section"]');
+    await expect(marketingSection).toBeVisible();
+    
+    // Configure communication preferences
+    const emailMarketingToggle = page.locator('[data-testid="email-marketing-toggle"]');
+    const smsMarketingToggle = page.locator('[data-testid="sms-marketing-toggle"]');
+    const pushMarketingToggle = page.locator('[data-testid="push-marketing-toggle"]');
+    const socialMarketingToggle = page.locator('[data-testid="social-marketing-toggle"]');
+    
+    await emailMarketingToggle.uncheck();
+    await smsMarketingToggle.uncheck();
+    await pushMarketingToggle.check();
+    await socialMarketingToggle.uncheck();
+    
+    // Set communication frequency
+    const frequencySelect = page.locator('[data-testid="marketing-frequency-select"]');
+    await frequencySelect.selectOption('weekly');
+    
+    // Configure content preferences
+    const productUpdatesToggle = page.locator('[data-testid="product-updates-toggle"]');
+    const promotionsToggle = page.locator('[data-testid="promotions-toggle"]');
+    const surveysToggle = page.locator('[data-testid="surveys-toggle"]');
+    
+    await productUpdatesToggle.check();
+    await promotionsToggle.uncheck();
+    await surveysToggle.check();
+    
+    // Save communication preferences
+    const saveCommButton = page.locator('[data-testid="save-communication-preferences"]');
+    await saveCommButton.click();
+    
+    // Verify unsubscribe information
+    const unsubscribeInfo = page.locator('[data-testid="unsubscribe-information"]');
+    await expect(unsubscribeInfo).toBeVisible();
+    await expect(unsubscribeInfo).toContainText('unsubscribe at any time');
+  });
+
+  test('Consent History and Audit Trail', async () => {
+    await page.goto(`${BASE_URL}/profile/privacy/history`);
+    
+    // Verify consent history section
+    const historySection = page.locator('[data-testid="consent-history-section"]');
+    await expect(historySection).toBeVisible();
+    
+    // Verify consent history table
+    const historyTable = page.locator('[data-testid="consent-history-table"]');
+    await expect(historyTable).toBeVisible();
+    
+    // Check table headers
+    const headers = ['Date', 'Consent Type', 'Action', 'Legal Basis', 'Version'];
+    for (const header of headers) {
+      const headerElement = page.locator(`[data-testid="header-${header.toLowerCase().replace(' ', '-')}"]`);
+      await expect(headerElement).toBeVisible();
+    }
+    
+    // Verify consent entries
+    const consentRows = page.locator('[data-testid^="consent-row-"]');
+    const rowCount = await consentRows.count();
+    expect(rowCount).toBeGreaterThan(0);
+    
+    // Check first consent entry details
+    const firstRow = consentRows.first();
+    await expect(firstRow).toContainText('Social Data Collection');
+    await expect(firstRow).toContainText('Granted');
+    await expect(firstRow).toContainText('GDPR Article 6(1)(a)');
+    
+    // Test filtering by consent type
+    const typeFilter = page.locator('[data-testid="consent-type-filter"]');
+    await typeFilter.selectOption(CONSENT_TYPES.SOCIAL_DATA_COLLECTION);
+    
+    // Verify filtered results
+    const filteredRows = page.locator('[data-testid^="consent-row-"]');
+    const filteredCount = await filteredRows.count();
+    expect(filteredCount).toBeLessThanOrEqual(rowCount);
+    
+    // Test date range filtering
+    const dateFromInput = page.locator('[data-testid="date-from-filter"]');
+    const dateToInput = page.locator('[data-testid="date-to-filter"]');
+    
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    const today = new Date().toISOString().split('T')[0];
+    
+    await dateFromInput.fill(yesterday);
+    await dateToInput.fill(today);
+    
+    const applyFilterButton = page.locator('[data-testid="apply-date-filter"]');
+    await applyFilterButton.click();
+    
+    // Verify export functionality
+    const exportButton = page.locator('[data-testid="export-consent-history"]');
+    await expect(exportButton).toBeVisible();
+    await exportButton.click();
+    
+    const exportFormat = page.locator('[data-testid="export-format-select"]');
+    await exportFormat.selectOption('csv');
+    
+    const confirmExportButton = page.locator('[data-testid="confirm-export"]');
+    await confirmExportButton.click();
+    
+    const exportSuccess = page.locator('[data-testid="export-success-message"]');
+    await expect(exportSuccess).toBeVisible();
+  });
+
+  test('Data Export Request (GDPR Article 15)', async () => {
+    await page.goto(`${BASE_URL}/profile/privacy/data-export`);
+    
+    // Verify data export section
+    const exportSection = page.locator('[data-testid="data-export-section"]');
+    await expect(exportSection).toBeVisible();
+    
+    // Verify data categories selection
+    const categoriesSection = page.locator('[data-testid="export-categories-section"]');
+    await expect(categoriesSection).toBeVisible();
+    
+    // Select data categories for export
+    const profileDataToggle = page.locator('[data-testid="export-profile-data"]');
+    const socialDataToggle = page.locator('[data-testid="export-social-data"]');
+    const activityDataToggle = page.locator('[data-testid="export-activity-data"]');
+    const preferencesDataToggle = page.locator('[data-testid="export-preferences-data"]');
+    
+    await profileDataToggle.check();
+    await socialDataToggle.check();
+    await activityDataToggle.check();
+    await preferencesDataToggle.uncheck();
+    
+    // Select export format
+    const formatSelect = page.locator('[data-testid="export-format-select"]');
+    await formatSelect.selectOption('json');
+    
+    // Add export reason
+    const reasonSelect = page.locator('[data-testid="export-reason-select"]');
+    await reasonSelect.selectOption('personal-use');
+    
+    // Request data export
+    const requestExportButton = page.locator('[data-testid="request-data-export"]');
+    await requestExportButton.click();
+    
+    // Verify identity confirmation
+    const identityConfirmation = page.locator('[data-testid="identity-confirmation-modal"]');
+    await expect(identityConfirmation).toBeVisible();
+    
+    const passwordInput = page.locator('[data-testid="confirm-password-input"]');
+    await passwordInput.fill('password123');
+    
+    const confirmIdentityButton = page.locator('[data-testid="confirm-identity-button"]');
+    await confirmIdentityButton.click();
+    
+    // Verify export request confirmation
+    const exportConfirmation = page.locator('[data-testid="export-request-confirmation"]');
+    await expect(exportConfirmation).toBeVisible();
+    await expect(exportConfirmation).toContainText('Export request submitted');
+    
+    // Verify estimated completion time
+    const estimatedTime = page.locator('[data-testid="export-estimated-completion"]');
+    await expect(estimatedTime).toBeVisible();
+    await expect(estimatedTime).toContainText('5 minutes');
+    
+    // Verify export request tracking
+    const trackingId = page.locator('[data-testid="export-tracking-id"]');
+    await expect(trackingId).toBeVisible();
+    await expect(trackingId).toContainText('export_123');
+  });
+
+  test('Account Deletion Request (GDPR Article 17)', async () => {
+    await page.goto(`${BASE_URL}/profile/privacy/delete-account`);
+    
+    // Verify account deletion section
+    const deletionSection = page.locator('[data-testid="account-deletion-section"]');
+    await expect(deletionSection).toBeVisible();
+    
+    // Verify deletion warning
+    const deletionWarning = page.locator('[data-testid="deletion-warning"]');
+    await expect(deletionWarning).toBeVisible();
+    await expect(deletionWarning).toContainText('permanently delete');
+    
+    // Select deletion options
+    const deleteProfileToggle = page.locator('[data-testid="delete-profile-data"]');
+    const deleteSocialToggle = page.locator('[data-testid="delete-social-data"]');
+    const deleteActivityToggle = page.locator('[data-testid="delete-activity-data"]');
+    const anonymizeToggle = page.locator('[data-testid="anonymize-instead-delete"]');
+    
+    await deleteProfileToggle.check();
+    await deleteSocialToggle.check();
+    await deleteActivityToggle.check();
+    await anonymizeToggle.uncheck();
+    
+    // Select deletion reason
+    const reasonSelect = page.locator('[data-testid="deletion-reason-select"]');
+    await reasonSelect.selectOption('privacy-concerns');
+    
+    // Add optional feedback
+    const feedbackTextarea = page.locator('[data-testid="deletion-feedback"]');
+    await feedbackTextarea.fill('Testing account deletion process for E2E testing');
+    
+    // Initiate deletion request
+    const requestDeletionButton = page.locator('[data-testid="request-account-deletion"]');
+    await requestDeletionButton.click();
+    
+    // Verify deletion confirmation modal
+    const deletionModal = page.locator('[data-testid="deletion-confirmation-modal"]');
+    await expect(deletionModal).toBeVisible();
+    
+    // Confirm understanding of consequences
+    const consequencesCheckbox = page.locator('[data-testid="understand-consequences"]');
+    await consequencesCheckbox.check();
+    
+    // Enter confirmation phrase
+    const confirmationInput = page.locator('[data-testid="deletion-confirmation-input"]');
+    await confirmationInput.fill('DELETE MY ACCOUNT');
+    
+    // Verify password
+    const passwordConfirmInput = page.locator('[data-testid="deletion-password-confirm"]');
+    await passwordConfirmInput.fill('password123');
+    
+    // Final confirmation
+    const finalConfirmButton = page.locator('[data-testid="final-deletion-confirm"]');
+    await finalConfirmButton.click();
+    
+    // Verify deletion scheduled confirmation
+    const scheduledConfirmation = page.locator('[data-testid="deletion-scheduled-confirmation"]');
+    await expect(scheduledConfirmation).toBeVisible();
+    await expect(scheduledConfirmation).toContainText('Deletion scheduled');
+    
+    // Verify grace period information
+    const gracePeriod = page.locator('[data-testid="deletion-grace-period"]');
+    await expect(gracePeriod).toBeVisible();
+    await expect(gracePeriod).toContainText('30 days');
+    
+    // Verify cancellation option
+    const cancelDeletionButton = page.locator('[data-testid="cancel-deletion-button"]');
+    await expect(cancelDeletionButton).toBeVisible();
+  });
+
+  test('Age Verification and Parental Consent', async () => {
+    // Mock minor user (under 13)
+    await page.route(`${API_URL}/api/user/profile`, async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...TEST_USER,
+          dateOfBirth: '2015-01-01', // 8 years old
+          isMinor: true,
+          requiresParentalConsent: true
+        })
+      });
+    });
+    
+    await page.goto(`${BASE_URL}/profile/privacy`);
+    
+    // Verify minor protection notice
+    const minorNotice = page.locator('[data-testid="minor-protection-notice"]');
+    await expect(minorNotice).toBeVisible();
+    await expect(minorNotice).toContainText('parental consent');
+    
+    // Verify restricted controls
+    const restrictedControls = page.locator('[data-testid="age-restricted-controls"]');
+    await expect(restrictedControls).toBeVisible();
+    
+    // Verify marketing communications disabled
+    const marketingToggle = page.locator('[data-testid="marketing-communications-toggle"]');
+    await expect(marketingToggle).toBeDisabled();
+    
+    // Verify data sharing restrictions
+    const dataSharingSection = page.locator('[data-testid="data-sharing-restrictions"]');
+    await expect(dataSharingSection).toContainText('restricted for users under 13');
+    
+    // Test parental consent request
+    const parentalConsentButton = page.locator('[data-testid="request-parental-consent"]');
+    await parentalConsentButton.click();
+    
+    const parentEmailInput = page.locator('[data-testid="parent-email-input"]');
+    await parentEmailInput.fill('parent@example.com');
+    
+    const sendConsentButton = page.locator('[data-testid="send-consent-request"]');
+    await sendConsentButton.click();
+    
+    const consentSentConfirmation = page.locator('[data-testid="consent-request-sent"]');
+    await expect(consentSentConfirmation).toBeVisible();
+  });
+
+  test('Privacy Settings Mobile Responsiveness', async () => {
+    // Set mobile viewport
+    await page.setViewportSize({ width: 375, height: 667 });
+    
+    await page.goto(`${BASE_URL}/profile/privacy`);
+    
+    // Verify mobile layout
+    const mobilePrivacyContainer = page.locator('[data-testid="mobile-privacy-container"]');
+    await expect(mobilePrivacyContainer).toBeVisible();
+    
+    // Test mobile navigation
+    const privacyTabs = page.locator('[data-testid="privacy-mobile-tabs"]');
+    await expect(privacyTabs).toBeVisible();
+    
+    // Test swipe/scroll functionality
+    const socialTab = page.locator('[data-testid="social-privacy-mobile-tab"]');
+    await socialTab.click();
+    
+    // Verify mobile toggles are touch-friendly
+    const toggles = page.locator('[data-testid$="-toggle"]');
+    const toggleCount = await toggles.count();
+    
+    for (let i = 0; i < Math.min(toggleCount, 3); i++) {
+      const toggle = toggles.nth(i);
+      const boundingBox = await toggle.boundingBox();
+      expect(boundingBox?.height).toBeGreaterThanOrEqual(44); // iOS touch target minimum
+    }
+    
+    // Test mobile modal behavior
+    const dataExportButton = page.locator('[data-testid="mobile-data-export"]');
+    await dataExportButton.click();
+    
+    const mobileModal = page.locator('[data-testid="mobile-export-modal"]');
+    await expect(mobileModal).toBeVisible();
+    
+    // Verify modal takes full screen on mobile
+    const modalBoundingBox = await mobileModal.boundingBox();
+    expect(modalBoundingBox?.width).toBeGreaterThanOrEqual(300);
+  });
+
+  test('Privacy Settings Accessibility Compliance', async () => {
+    await page.goto(`${BASE_URL}/profile/privacy`);
+    
+    // Test keyboard navigation
+    await page.keyboard.press('Tab');
+    let focusedElement = page.locator(':focus');
+    await expect(focusedElement).toBeVisible();
+    
+    // Test through multiple controls
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press('Tab');
+      focusedElement = page.locator(':focus');
+      await expect(focusedElement).toBeVisible();
+    }
+    
+    // Test ARIA attributes
+    const toggles = page.locator('[role="switch"]');
+    const toggleCount = await toggles.count();
+    expect(toggleCount).toBeGreaterThan(0);
+    
+    for (let i = 0; i < Math.min(toggleCount, 3); i++) {
+      const toggle = toggles.nth(i);
+      await expect(toggle).toHaveAttribute('aria-checked');
+      await expect(toggle).toHaveAttribute('aria-labelledby');
+    }
+    
+    // Test screen reader labels
+    const sections = page.locator('[data-testid$="-section"]');
+    const sectionCount = await sections.count();
+    
+    for (let i = 0; i < Math.min(sectionCount, 3); i++) {
+      const section = sections.nth(i);
+      await expect(section).toHaveAttribute('aria-labelledby');
+    }
+    
+    // Test high contrast mode
+    await page.addStyleTag({
+      content: `
+        @media (prefers-contrast: high) {
+          * { filter: contrast(150%); }
+        }
+      `
+    });
+    
+    // Verify controls remain visible in high contrast
+    const dataCollectionToggle = page.locator('[data-testid="social-data-collection-toggle"]');
+    await expect(dataCollectionToggle).toBeVisible();
+    
+    // Test focus indicators
+    await dataCollectionToggle.focus();
+    const focusStyle = await dataCollectionToggle.evaluate(el => {
+      return window.getComputedStyle(el, ':focus').outline;
+    });
+    expect(focusStyle).not.toBe('none');
+  });
+});

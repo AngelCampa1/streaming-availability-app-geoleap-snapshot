@@ -1,0 +1,569 @@
+import {
+  generateContentSchema,
+  generateContentFaqSchema,
+  generateStreamingHowToSchema,
+} from '../schema-markup';
+import type { ContentData } from '@/lib/api/content';
+
+// Mock the url-generation module
+jest.mock('../url-generation', () => ({
+  generateCanonicalUrl: jest.fn((type, slug) => `https://streamvpn.com/content/${type}/${slug}`),
+}));
+
+describe('Schema Markup Generation', () => {
+  const mockMovieContent: ContentData = {
+    id: '123',
+    title: 'The Dark Knight',
+    overview: 'When the menace known as the Joker wreaks havoc and chaos on the people of Gotham, Batman must accept one of the greatest psychological and physical tests.',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/poster.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1920/backdrop.jpg',
+    releaseYear: 2008,
+    genres: ['Action', 'Crime', 'Drama'],
+    rating: 9.0,
+    voteCount: 2500000,
+    runtime: 152,
+    contentRating: 'PG-13',
+    cast: [
+      { id: 1, name: 'Christian Bale', character: 'Bruce Wayne / Batman', profilePath: '/christian-bale.jpg', order: 1 },
+      { id: 2, name: 'Heath Ledger', character: 'Joker', profilePath: '/heath-ledger.jpg', order: 2 },
+      { id: 3, name: 'Aaron Eckhart', character: 'Harvey Dent', profilePath: '/aaron-eckhart.jpg', order: 3 },
+      { id: 4, name: 'Gary Oldman', character: 'Commissioner Gordon', profilePath: '/gary-oldman.jpg', order: 4 },
+      { id: 5, name: 'Michael Caine', character: 'Alfred', profilePath: '/michael-caine.jpg', order: 5 },
+    ],
+    crew: [
+      { id: 6, name: 'Christopher Nolan', job: 'Director', department: 'Directing', profilePath: '/nolan.jpg' },
+      { id: 7, name: 'Jonathan Nolan', job: 'Writer', department: 'Writing', profilePath: '/jonathan.jpg' },
+      { id: 8, name: 'David S. Goyer', job: 'Writer', department: 'Writing', profilePath: '/goyer.jpg' },
+    ],
+    streamingOptions: [
+      {
+        serviceId: 'netflix',
+        serviceName: 'Netflix',
+        url: 'https://netflix.com/watch/123',
+        type: 'subscription' as const,
+        quality: ['HD'],
+        price: 15.99,
+        currency: 'USD',
+      },
+      {
+        serviceId: 'amazon-prime',
+        serviceName: 'Amazon Prime Video',
+        url: 'https://primevideo.com/watch/123',
+        type: 'rental' as const,
+        quality: ['4K'],
+        price: 4.99,
+        currency: 'USD',
+      },
+    ],
+  };
+
+  const mockTvShowContent: ContentData = {
+    id: '456',
+    title: 'Breaking Bad',
+    overview: 'A high school chemistry teacher diagnosed with inoperable lung cancer turns to manufacturing and selling methamphetamine.',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/tv-poster.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1920/tv-backdrop.jpg',
+    releaseYear: 2008,
+    genres: ['Crime', 'Drama', 'Thriller'],
+    rating: 9.5,
+    voteCount: 1800000,
+    contentRating: 'TV-MA',
+    cast: [
+      { id: 10, name: 'Bryan Cranston', character: 'Walter White', profilePath: '/bryan-cranston.jpg', order: 1 },
+      { id: 11, name: 'Aaron Paul', character: 'Jesse Pinkman', profilePath: '/aaron-paul.jpg', order: 2 },
+    ],
+    crew: [
+      { id: 12, name: 'Vince Gilligan', job: 'Creator', department: 'Writing', profilePath: '/vince-gilligan.jpg' },
+      { id: 13, name: 'Peter Gould', job: 'Producer', department: 'Production', profilePath: '/peter-gould.jpg' },
+    ],
+    streamingOptions: [
+      {
+        serviceId: 'hulu',
+        serviceName: 'Hulu',
+        url: 'https://hulu.com/watch/breaking-bad',
+        type: 'subscription' as const,
+        quality: ['4K'],
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://streamvpn.com';
+  });
+
+  describe('generateContentSchema', () => {
+    it('should generate basic movie schema', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      expect(Array.isArray(schemas)).toBe(true);
+      expect(schemas).toHaveLength(2);
+
+      const [contentSchema, breadcrumbSchema] = schemas;
+
+      expect(contentSchema['@context']).toBe('https://schema.org');
+      expect(contentSchema['@type']).toBe('Movie');
+      expect(contentSchema.name).toBe('The Dark Knight');
+      expect(contentSchema.identifier).toBe('123');
+      expect(contentSchema.description).toBe(mockMovieContent.overview);
+    });
+
+    it('should generate TV show schema', () => {
+      const schemas = generateContentSchema(mockTvShowContent, 'tv-show');
+      const [contentSchema] = schemas;
+
+      expect(contentSchema['@type']).toBe('TVSeries');
+      expect(contentSchema.name).toBe('Breaking Bad');
+    });
+
+    it('should generate documentary schema', () => {
+      const documentaryContent = { ...mockMovieContent, title: 'Planet Earth' };
+      const schemas = generateContentSchema(documentaryContent, 'documentary');
+      const [contentSchema] = schemas;
+
+      expect(contentSchema['@type']).toBe('Movie'); // Documentaries use Movie schema
+      expect(contentSchema.name).toBe('Planet Earth');
+    });
+
+    it('should include images when available', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      const [contentSchema] = schemas;
+
+      expect(contentSchema.image).toEqual([
+        mockMovieContent.posterUrl,
+        mockMovieContent.backdropUrl,
+      ]);
+    });
+
+    it('should handle content without backdrop image', () => {
+      const contentWithoutBackdrop = { ...mockMovieContent, backdropUrl: undefined };
+      const schemas = generateContentSchema(contentWithoutBackdrop, 'movie');
+      const [contentSchema] = schemas;
+
+      expect(contentSchema.image).toEqual([mockMovieContent.posterUrl]);
+    });
+
+    it('should include release date', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      const [contentSchema] = schemas;
+
+      expect(contentSchema.datePublished).toBe('2008-01-01');
+    });
+
+    it('should include genres', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      const [contentSchema] = schemas;
+
+      expect(contentSchema.genre).toEqual(['Action', 'Crime', 'Drama']);
+    });
+
+    it('should include aggregate rating', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      const [contentSchema] = schemas;
+
+      expect(contentSchema.aggregateRating).toEqual({
+        '@type': 'AggregateRating',
+        ratingValue: 9.0,
+        ratingCount: 2500000,
+        bestRating: 10,
+        worstRating: 1,
+      });
+    });
+
+    it('should include cast members (limited to 10)', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      const [contentSchema] = schemas;
+
+      expect((contentSchema as any).actor).toHaveLength(5);
+      expect((contentSchema as any).actor[0]).toEqual({
+        '@type': 'Person',
+        name: 'Christian Bale',
+        roleName: 'Bruce Wayne / Batman',
+        image: '/christian-bale.jpg',
+      });
+    });
+
+    it('should include directors (limited to 5)', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      const [contentSchema] = schemas;
+
+      expect((contentSchema as any).director).toHaveLength(1);
+      expect(contentSchema.director[0]).toEqual({
+        '@type': 'Person',
+        name: 'Christopher Nolan',
+        image: '/nolan.jpg',
+      });
+    });
+
+    it('should include streaming offers', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      const [contentSchema] = schemas;
+
+      expect((contentSchema as any).offers).toHaveLength(2);
+      expect((contentSchema as any).offers[0]).toEqual({
+        '@type': 'Offer',
+        url: 'https://netflix.com/watch/123',
+        seller: {
+          '@type': 'Organization',
+          name: 'Netflix',
+        },
+        availability: 'https://schema.org/OnlineOnly',
+        price: 15.99,
+        priceCurrency: 'USD',
+        category: 'subscription',
+      });
+    });
+
+    it('should include movie runtime', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      const [contentSchema] = schemas;
+
+      expect(contentSchema.duration).toBe('PT152M');
+      expect(contentSchema.contentRating).toBe('PG-13');
+    });
+
+    it('should include TV show content rating', () => {
+      const schemas = generateContentSchema(mockTvShowContent, 'tv-show');
+      const [contentSchema] = schemas;
+
+      expect(contentSchema.contentRating).toBe('TV-MA');
+      expect(contentSchema.duration).toBeUndefined(); // TV shows don't have runtime
+    });
+
+    it('should include provider information', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      const [contentSchema] = schemas;
+
+      expect(contentSchema.provider).toEqual({
+        '@type': 'Organization',
+        name: 'StreamVPN',
+        url: 'https://streamvpn.com',
+        logo: 'https://streamvpn.com/logo.png',
+      });
+    });
+
+    it('should generate breadcrumb schema', () => {
+      const schemas = generateContentSchema(mockMovieContent, 'movie');
+      const [, breadcrumbSchema] = schemas;
+
+      expect(breadcrumbSchema['@context']).toBe('https://schema.org');
+      expect(breadcrumbSchema['@type']).toBe('BreadcrumbList');
+      expect(breadcrumbSchema.itemListElement).toHaveLength(3);
+      expect(breadcrumbSchema.itemListElement[0]).toEqual({
+        '@type': 'ListItem',
+        position: 1,
+        name: 'Home',
+        item: 'https://streamvpn.com',
+      });
+      expect(breadcrumbSchema.itemListElement[1]).toEqual({
+        '@type': 'ListItem',
+        position: 2,
+        name: 'Movies',
+        item: 'https://streamvpn.com/movies',
+      });
+      expect(breadcrumbSchema.itemListElement[2]).toEqual({
+        '@type': 'ListItem',
+        position: 3,
+        name: 'The Dark Knight',
+        item: 'https://streamvpn.com/content/movie/123-the-dark-knight',
+      });
+    });
+
+    it('should handle content without optional fields', () => {
+      const minimalContent: ContentData = {
+        id: '789',
+        title: 'Minimal Movie',
+      };
+
+      const schemas = generateContentSchema(minimalContent, 'movie');
+      const [contentSchema] = schemas;
+
+      expect(contentSchema.name).toBe('Minimal Movie');
+      expect(contentSchema.description).toBe('Watch Minimal Movie online');
+      expect(contentSchema.image).toBeUndefined();
+      expect(contentSchema.aggregateRating).toBeUndefined();
+      expect(contentSchema.actor).toBeUndefined();
+      expect(contentSchema.director).toBeUndefined();
+      expect(contentSchema.offers).toBeUndefined();
+    });
+  });
+
+  describe('generateContentFaqSchema', () => {
+    it('should generate FAQ schema with streaming options', () => {
+      const faqSchema = generateContentFaqSchema(mockMovieContent, 'movie');
+
+      expect(faqSchema['@context']).toBe('https://schema.org');
+      expect(faqSchema['@type']).toBe('FAQPage');
+      expect(faqSchema.mainEntity).toHaveLength(5);
+
+      // Where to watch FAQ
+      expect(faqSchema.mainEntity[0]).toEqual({
+        '@type': 'Question',
+        name: 'Where can I watch The Dark Knight?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'The Dark Knight is available to watch on Netflix, Amazon Prime Video and other streaming platforms. Check our page for the most up-to-date streaming options.',
+        },
+      });
+
+      // Rating FAQ
+      expect(faqSchema.mainEntity[1]).toEqual({
+        '@type': 'Question',
+        name: 'What is the rating of The Dark Knight?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'The Dark Knight has a rating of 9/10 based on 2,500,000 user votes.',
+        },
+      });
+
+      // Release year FAQ
+      expect(faqSchema.mainEntity[2]).toEqual({
+        '@type': 'Question',
+        name: 'When was The Dark Knight released?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'The Dark Knight was released in 2008.',
+        },
+      });
+
+      // Genre FAQ
+      expect(faqSchema.mainEntity[3]).toEqual({
+        '@type': 'Question',
+        name: 'What genre is The Dark Knight?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'The Dark Knight is a Action, Crime, Drama movie.',
+        },
+      });
+
+      // Runtime FAQ
+      expect(faqSchema.mainEntity[4]).toEqual({
+        '@type': 'Question',
+        name: 'How long is The Dark Knight?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'The Dark Knight has a runtime of 152 minutes.',
+        },
+      });
+    });
+
+    it('should generate FAQ schema for TV shows', () => {
+      const faqSchema = generateContentFaqSchema(mockTvShowContent, 'tv-show');
+
+      expect(faqSchema.mainEntity).toHaveLength(4); // No runtime FAQ for TV shows
+      expect(faqSchema.mainEntity[3].acceptedAnswer.text).toContain('Crime, Drama, Thriller TV series');
+    });
+
+    it('should handle content without streaming options', () => {
+      const noStreamingContent = { ...mockMovieContent, streamingOptions: [] };
+      const faqSchema = generateContentFaqSchema(noStreamingContent, 'movie');
+
+      expect(faqSchema.mainEntity).toHaveLength(4); // No streaming FAQ
+      expect(faqSchema.mainEntity[0].name).not.toContain('Where can I watch');
+    });
+
+    it('should handle content without rating', () => {
+      const noRatingContent = { ...mockMovieContent, rating: undefined };
+      const faqSchema = generateContentFaqSchema(noRatingContent, 'movie');
+
+      const ratingQuestion = faqSchema.mainEntity.find((q: any) => 
+        q.name.includes('rating')
+      );
+      expect(ratingQuestion).toBeUndefined();
+    });
+
+    it('should handle content without release year', () => {
+      const noYearContent = { ...mockMovieContent, releaseYear: undefined };
+      const faqSchema = generateContentFaqSchema(noYearContent, 'movie');
+
+      const yearQuestion = faqSchema.mainEntity.find((q: any) => 
+        q.name.includes('released')
+      );
+      expect(yearQuestion).toBeUndefined();
+    });
+
+    it('should handle content without genres', () => {
+      const noGenresContent = { ...mockMovieContent, genres: [] };
+      const faqSchema = generateContentFaqSchema(noGenresContent, 'movie');
+
+      const genreQuestion = faqSchema.mainEntity.find((q: any) => 
+        q.name.includes('genre')
+      );
+      expect(genreQuestion).toBeUndefined();
+    });
+
+    it('should handle content without runtime', () => {
+      const noRuntimeContent = { ...mockMovieContent, runtime: undefined };
+      const faqSchema = generateContentFaqSchema(noRuntimeContent, 'movie');
+
+      const runtimeQuestion = faqSchema.mainEntity.find((q: any) => 
+        q.name.includes('How long')
+      );
+      expect(runtimeQuestion).toBeUndefined();
+    });
+
+    it('should return null when no FAQs can be generated', () => {
+      const minimalContent: ContentData = {
+        id: '789',
+        title: 'Minimal Movie',
+      };
+
+      const faqSchema = generateContentFaqSchema(minimalContent, 'movie');
+      expect(faqSchema).toBeNull();
+    });
+  });
+
+  describe('generateStreamingHowToSchema', () => {
+    it('should generate How-to schema for streaming', () => {
+      const howToSchema = generateStreamingHowToSchema(mockMovieContent, 'movie');
+
+      expect(howToSchema['@context']).toBe('https://schema.org');
+      expect(howToSchema['@type']).toBe('HowTo');
+      expect(howToSchema.name).toBe('How to Watch The Dark Knight Online');
+      expect(howToSchema.description).toBe('Step-by-step guide to watch The Dark Knight on Netflix');
+      expect(howToSchema.totalTime).toBe('PT5M');
+
+      // Check supplies
+      expect((howToSchema as any).supply).toHaveLength(2);
+      expect((howToSchema as any).supply[0]).toEqual({
+        '@type': 'HowToSupply',
+        name: 'Internet connection',
+      });
+      expect((howToSchema as any).supply[1]).toEqual({
+        '@type': 'HowToSupply',
+        name: 'Netflix subscription',
+      });
+
+      // Check tools
+      expect((howToSchema as any).tool).toHaveLength(1);
+      expect((howToSchema as any).tool[0]).toEqual({
+        '@type': 'HowToTool',
+        name: 'Device (computer, tablet, or phone)',
+      });
+
+      // Check steps
+      expect((howToSchema as any).step).toHaveLength(4);
+      expect((howToSchema as any).step[0]).toEqual({
+        '@type': 'HowToStep',
+        name: 'Visit Netflix',
+        text: 'Go to Netflix website or open the app',
+        url: 'https://netflix.com/watch/123',
+      });
+      expect((howToSchema as any).step[1]).toEqual({
+        '@type': 'HowToStep',
+        name: 'Sign in to your account',
+        text: 'Sign in to your Netflix account or create a new one',
+      });
+      expect((howToSchema as any).step[2]).toEqual({
+        '@type': 'HowToStep',
+        name: 'Search for The Dark Knight',
+        text: 'Use the search function to find The Dark Knight',
+      });
+      expect((howToSchema as any).step[3]).toEqual({
+        '@type': 'HowToStep',
+        name: 'Start watching',
+        text: 'Click play to start watching The Dark Knight',
+      });
+    });
+
+    it('should return null when no streaming options available', () => {
+      const noStreamingContent = { ...mockMovieContent, streamingOptions: [] };
+      const howToSchema = generateStreamingHowToSchema(noStreamingContent, 'movie');
+
+      expect(howToSchema).toBeNull();
+    });
+
+    it('should return null when streaming options is undefined', () => {
+      const undefinedStreamingContent = { 
+        ...mockMovieContent, 
+        streamingOptions: undefined 
+      };
+      const howToSchema = generateStreamingHowToSchema(undefinedStreamingContent, 'movie');
+
+      expect(howToSchema).toBeNull();
+    });
+
+    it('should use first streaming platform as primary', () => {
+      const howToSchema = generateStreamingHowToSchema(mockMovieContent, 'movie');
+
+      expect(howToSchema.description).toContain('Netflix');
+      expect((howToSchema as any).supply[1].name).toBe('Netflix subscription');
+      expect((howToSchema as any).step[0].name).toBe('Visit Netflix');
+      expect((howToSchema as any).step[0].url).toBe('https://netflix.com/watch/123');
+    });
+  });
+
+  describe('edge cases and error handling', () => {
+    it('should handle very large cast arrays', () => {
+      const largeCastContent = {
+        ...mockMovieContent,
+        cast: Array.from({ length: 50 }, (_, i) => ({
+          id: i,
+          name: `Actor ${i}`,
+          character: `Character ${i}`,
+          profilePath: `/actor${i}.jpg`,
+          order: i + 1,
+        })),
+      };
+
+      const schemas = generateContentSchema(largeCastContent, 'movie');
+      const [contentSchema] = schemas;
+
+      expect((contentSchema as any).actor).toHaveLength(10); // Should be limited to 10
+    });
+
+    it('should handle multiple directors', () => {
+      const multiDirectorContent = {
+        ...mockMovieContent,
+        crew: [
+          { id: 1, name: 'Director One', job: 'Director', department: 'Directing', profilePath: '/dir1.jpg' },
+          { id: 2, name: 'Director Two', job: 'Director', department: 'Directing', profilePath: '/dir2.jpg' },
+          { id: 3, name: 'Producer', job: 'Producer', department: 'Production', profilePath: '/prod.jpg' },
+          { id: 4, name: 'Director Three', job: 'Director', department: 'Directing', profilePath: '/dir3.jpg' },
+          { id: 5, name: 'Director Four', job: 'Director', department: 'Directing', profilePath: '/dir4.jpg' },
+          { id: 6, name: 'Director Five', job: 'Director', department: 'Directing', profilePath: '/dir5.jpg' },
+          { id: 7, name: 'Director Six', job: 'Director', department: 'Directing', profilePath: '/dir6.jpg' }, // Should be excluded (limit 5)
+        ],
+      };
+
+      const schemas = generateContentSchema(multiDirectorContent, 'movie');
+      const [contentSchema] = schemas;
+
+      expect(contentSchema.director).toHaveLength(5); // Should be limited to 5
+      expect(contentSchema.director.map((d: any) => d.name)).not.toContain('Director Six');
+    });
+
+    it('should handle streaming options without price', () => {
+      const freeStreamingContent = {
+        ...mockMovieContent,
+        streamingOptions: [
+          {
+            serviceName: 'Free Platform',
+            url: 'https://freeplatform.com/watch/123',
+            type: 'free',
+            quality: 'HD',
+          },
+        ],
+      };
+
+      const schemas = generateContentSchema(freeStreamingContent, 'movie');
+      const [contentSchema] = schemas;
+
+      const offers = contentSchema.offers as Array<{ price?: unknown; priceCurrency?: unknown }>;
+      expect(offers[0].price).toBeUndefined();
+      expect(offers[0].priceCurrency).toBeUndefined();
+    });
+
+    it('should handle cast without character information', () => {
+      const noCharacterContent = {
+        ...mockMovieContent,
+        cast: [
+          { id: 1, name: 'Actor Name', profilePath: '/actor.jpg', order: 1 },
+        ],
+      };
+
+      const schemas = generateContentSchema(noCharacterContent, 'movie');
+      const [contentSchema] = schemas;
+
+      expect((contentSchema as any).actor[0].roleName).toBeUndefined();
+    });
+  });
+});

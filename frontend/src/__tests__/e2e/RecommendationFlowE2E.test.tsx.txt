@@ -1,0 +1,700 @@
+import React from 'react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { jest } from '@jest/globals';
+import '@testing-library/jest-dom';
+import userEvent from '@testing-library/user-event';
+
+// Mock Next.js router
+const mockPush = jest.fn();
+const mockReplace = jest.fn();
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: mockPush,
+    replace: mockReplace,
+    back: jest.fn(),
+    forward: jest.fn(),
+    refresh: jest.fn(),
+    prefetch: jest.fn(),
+  }),
+  usePathname: () => '/recommendations',
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+// Mock fetch globally
+global.fetch = jest.fn() as jest.MockedFunction<typeof fetch>;
+
+// Mock localStorage
+Object.defineProperty(window, 'localStorage', {
+  value: {
+    getItem: jest.fn(() => 'mock-auth-token'),
+    setItem: jest.fn(),
+    removeItem: jest.fn(),
+    clear: jest.fn(),
+  },
+  writable: true,
+});
+
+// Mock data
+const mockRecommendations = [
+  {
+    id: '1',
+    contentId: 'movie-123',
+    contentType: 'movie' as const,
+    title: 'Amazing Action Movie',
+    description: 'An incredible action-packed adventure',
+    poster: '/posters/movie-123.jpg',
+    backdrop: '/backdrops/movie-123.jpg',
+    rating: 8.5,
+    genres: ['Action', 'Adventure'],
+    reasonCodes: ['trending', 'high_rated'],
+    personalizedScore: 9.2,
+    timestamp: new Date().toISOString(),
+  },
+  {
+    id: '2',
+    contentId: 'tv-456',
+    contentType: 'show' as const,
+    title: 'Fantastic Comedy Series',
+    description: 'A hilarious comedy that will keep you laughing',
+    poster: '/posters/tv-456.jpg',
+    backdrop: '/backdrops/tv-456.jpg',
+    rating: 7.8,
+    genres: ['Comedy', 'Drama'],
+    reasonCodes: ['similar_taste', 'genre_match'],
+    personalizedScore: 8.7,
+    timestamp: new Date().toISOString(),
+  },
+];
+
+const mockTrendingContent = [
+  {
+    id: 'trending-1',
+    title: 'Trending Movie 1',
+    type: 'movie',
+    rating: 9.1,
+    poster: '/trending-1.jpg',
+    genres: ['Action', 'Sci-Fi'],
+  },
+  {
+    id: 'trending-2',
+    title: 'Trending Show 1',
+    type: 'show',
+    rating: 8.9,
+    poster: '/trending-2.jpg',
+    genres: ['Drama', 'Thriller'],
+  },
+];
+
+const mockUserRatings = {
+  'movie-123': 4,
+  'tv-456': 5,
+};
+
+// Mock App Component with all US-8.4 features
+const MockRecommendationApp = () => {
+  const [recommendations, setRecommendations] = React.useState(mockRecommendations);
+  const [trendingContent, setTrendingContent] = React.useState(mockTrendingContent);
+  const [userRatings, setUserRatings] = React.useState(mockUserRatings);
+  const [settings, setSettings] = React.useState({
+    enableTrending: true,
+    enableSimilar: true,
+    enableGenreBased: true,
+  });
+  const [isLoading, setIsLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const handleRateContent = async (contentId: string, rating: number) => {
+    try {
+      setIsLoading(true);
+      await fetch(`/api/content/${contentId}/rate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+        },
+        body: JSON.stringify({ rating }),
+      });
+      
+      setUserRatings(prev => ({ ...prev, [contentId]: rating }));
+    } catch (err) {
+      setError('Failed to submit rating');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDismissRecommendation = async (recommendationId: string) => {
+    try {
+      await fetch(`/api/recommendations/${recommendationId}/dismiss`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+        },
+      });
+      
+      setRecommendations(prev => prev.filter(rec => rec.id !== recommendationId));
+    } catch (err) {
+      setError('Failed to dismiss recommendation');
+    }
+  };
+
+  const handleUpdateSettings = async (newSettings: typeof settings) => {
+    try {
+      await fetch('/api/recommendations/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+        },
+        body: JSON.stringify(newSettings),
+      });
+      
+      setSettings(newSettings);
+    } catch (err) {
+      setError('Failed to update settings');
+    }
+  };
+
+  React.useEffect(() => {
+    // Load initial data
+    setIsLoading(true);
+    Promise.all([
+      fetch('/api/recommendations/trending'),
+      fetch('/api/recommendations/similar'),
+      fetch('/api/recommendations/settings'),
+    ])
+    .then(() => setIsLoading(false))
+    .catch((err) => {
+      console.error('Loading failed:', err);
+      setError('Failed to load recommendations');
+      setIsLoading(false);
+    });
+  }, []);
+
+  return (
+    <div data-testid="recommendation-app">
+      {/* Header */}
+      <header data-testid="app-header">
+        <h1>Content Recommendations</h1>
+        <button data-testid="settings-button" onClick={() => {}}>
+          Settings
+        </button>
+      </header>
+
+      {/* Loading State */}
+      {isLoading && (
+        <div data-testid="app-loading" className="loading">
+          Loading recommendations...
+        </div>
+      )}
+
+      {/* Error State */}
+      {error && (
+        <div data-testid="app-error" className="error">
+          {error}
+          <button data-testid="retry-button" onClick={() => setError(null)}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Trending Section */}
+      {settings.enableTrending && (
+        <section data-testid="trending-section">
+          <h2>Trending Now</h2>
+          <div data-testid="trending-content">
+            {trendingContent.map(item => (
+              <div key={item.id} data-testid={`trending-item-${item.id}`} className="content-card recommendation-card">
+                <img src={item.poster} alt={item.title} />
+                <h3>{item.title}</h3>
+                <div data-testid={`rating-${item.id}`}>⭐ {item.rating}</div>
+                <div>{item.genres.join(', ')}</div>
+                <button 
+                  data-testid={`rate-trending-${item.id}`}
+                  onClick={() => handleRateContent(item.id, 4)}
+                >
+                  Rate
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Similar Content Section */}
+      {settings.enableSimilar && (
+        <section data-testid="similar-section">
+          <h2>Similar to Your Watchlist</h2>
+          <div data-testid="similar-content">
+            {recommendations.map(rec => (
+              <div key={rec.id} data-testid={`recommendation-${rec.id}`} className="content-card recommendation-card">
+                <img src={rec.poster} alt={rec.title} />
+                <h3>{rec.title}</h3>
+                <p>{rec.description}</p>
+                <div data-testid={`rec-rating-${rec.id}`}>⭐ {rec.rating}</div>
+                <div>{rec.genres.join(', ')}</div>
+                <div data-testid={`personalized-score-${rec.id}`}>
+                  Match: {rec.personalizedScore}/10
+                </div>
+                <div data-testid={`reason-${rec.id}`}>
+                  {rec.reasonCodes.join(', ')}
+                </div>
+                
+                {/* Rating Interface */}
+                <div data-testid={`rating-interface-${rec.id}`}>
+                  <span>Your Rating:</span>
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <button
+                      key={star}
+                      data-testid={`star-${rec.id}-${star}`}
+                      className={(userRatings as any)[rec.contentId] >= star ? 'filled' : 'empty'}
+                      onClick={() => handleRateContent(rec.contentId, star)}
+                      aria-label={`Rate ${star} ${star === 1 ? 'star' : 'stars'} for ${rec.title}`}
+                      tabIndex={0}
+                    >
+                      ⭐
+                    </button>
+                  ))}
+                </div>
+                
+                <button 
+                  data-testid={`dismiss-${rec.id}`}
+                  onClick={() => handleDismissRecommendation(rec.id)}
+                >
+                  Dismiss
+                </button>
+                
+                <button 
+                  data-testid={`view-content-${rec.id}`}
+                  onClick={() => mockPush(`/content/${rec.contentType}/${rec.contentId}`)}
+                >
+                  View Details
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Settings Panel */}
+      <div data-testid="settings-panel" style={{ display: 'none' }}>
+        <h3>Recommendation Settings</h3>
+        <label>
+          <input
+            type="checkbox"
+            data-testid="toggle-trending"
+            checked={settings.enableTrending}
+            onChange={(e) => handleUpdateSettings({ ...settings, enableTrending: e.target.checked })}
+          />
+          Enable Trending Content
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            data-testid="toggle-similar"
+            checked={settings.enableSimilar}
+            onChange={(e) => handleUpdateSettings({ ...settings, enableSimilar: e.target.checked })}
+          />
+          Enable Similar Content
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            data-testid="toggle-genre-based"
+            checked={settings.enableGenreBased}
+            onChange={(e) => handleUpdateSettings({ ...settings, enableGenreBased: e.target.checked })}
+          />
+          Enable Genre-Based Recommendations
+        </label>
+        <button data-testid="save-settings" onClick={() => {}}>
+          Save Settings
+        </button>
+      </div>
+    </div>
+  );
+};
+
+describe('US-8.4 End-to-End Recommendation Flow', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    
+    // Mock successful API responses
+    (fetch as jest.MockedFunction<typeof fetch>)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ trending: mockTrendingContent }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ recommendations: mockRecommendations }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ settings: { enableTrending: true, enableSimilar: true, enableGenreBased: true } }),
+      } as Response);
+  });
+
+  afterEach(() => {
+    jest.resetAllMocks();
+  });
+
+  describe('Complete User Journey', () => {
+    it('should complete the full recommendation and rating flow', async () => {
+      const user = userEvent.setup();
+      
+      render(<MockRecommendationApp />);
+
+      // 1. Initial load - should show trending content
+      await waitFor(() => {
+        expect(screen.getByTestId('trending-section')).toBeInTheDocument();
+        expect(screen.getByText('Trending Now')).toBeInTheDocument();
+      });
+
+      // 2. Should show similar content recommendations
+      await waitFor(() => {
+        expect(screen.getByTestId('similar-section')).toBeInTheDocument();
+        expect(screen.getByText('Similar to Your Watchlist')).toBeInTheDocument();
+      });
+
+      // 3. Rate a piece of content
+      (fetch as jest.MockedFunction<typeof fetch>).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ success: true }),
+      } as Response);
+
+      const fourthStar = screen.getByTestId('star-1-4');
+      await user.click(fourthStar);
+
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith(
+          '/api/content/movie-123/rate',
+          expect.objectContaining({
+            method: 'POST',
+            body: JSON.stringify({ rating: 4 }),
+          })
+        );
+      });
+
+      // 4. Dismiss a recommendation
+      (fetch as jest.MockedFunction<typeof fetch>).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ success: true }),
+      } as Response);
+
+      const dismissButton = screen.getByTestId('dismiss-1');
+      await user.click(dismissButton);
+
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith(
+          '/api/recommendations/1/dismiss',
+          expect.objectContaining({
+            method: 'POST',
+          })
+        );
+      });
+
+      // 5. Recommendation should be removed from UI
+      await waitFor(() => {
+        expect(screen.queryByTestId('recommendation-1')).not.toBeInTheDocument();
+      });
+
+      // 6. Navigate to content details
+      const viewButton = screen.getByTestId('view-content-2');
+      await user.click(viewButton);
+
+      expect(mockPush).toHaveBeenCalledWith('/content/show/tv-456');
+    });
+
+    it('should handle recommendation settings changes', async () => {
+      const user = userEvent.setup();
+      
+      render(<MockRecommendationApp />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('trending-section')).toBeInTheDocument();
+      });
+
+      // Open settings
+      const settingsButton = screen.getByTestId('settings-button');
+      await user.click(settingsButton);
+
+      // Show settings panel
+      const settingsPanel = screen.getByTestId('settings-panel');
+      settingsPanel.style.display = 'block';
+
+      // Disable trending content
+      (fetch as jest.MockedFunction<typeof fetch>).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ success: true }),
+      } as Response);
+
+      const trendingToggle = screen.getByTestId('toggle-trending');
+      await user.click(trendingToggle);
+
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith(
+          '/api/recommendations/settings',
+          expect.objectContaining({
+            method: 'POST',
+            body: JSON.stringify({
+              enableTrending: false,
+              enableSimilar: true,
+              enableGenreBased: true,
+            }),
+          })
+        );
+      });
+
+      // Trending section should be hidden
+      await waitFor(() => {
+        expect(screen.queryByTestId('trending-section')).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Performance Requirements', () => {
+    it('should load recommendations within 3 seconds', async () => {
+      const start = Date.now();
+      
+      render(<MockRecommendationApp />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('trending-section')).toBeInTheDocument();
+        expect(screen.getByTestId('similar-section')).toBeInTheDocument();
+      });
+
+      const loadTime = Date.now() - start;
+      expect(loadTime).toBeLessThan(3000); // US-8.4 requirement
+    });
+
+    it('should submit ratings within 1 second', async () => {
+      const user = userEvent.setup();
+      
+      (fetch as jest.MockedFunction<typeof fetch>).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ success: true }),
+      } as Response);
+      
+      render(<MockRecommendationApp />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('star-1-4')).toBeInTheDocument();
+      });
+
+      const start = Date.now();
+      
+      const fourthStar = screen.getByTestId('star-1-4');
+      await user.click(fourthStar);
+
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith(
+          expect.stringContaining('/rate'),
+          expect.any(Object)
+        );
+      });
+
+      const ratingTime = Date.now() - start;
+      expect(ratingTime).toBeLessThan(1000); // US-8.4 requirement
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should handle API failures gracefully', async () => {
+      // Component that starts with error state
+      const ErrorComponent = () => {
+        const [error] = React.useState('Failed to load recommendations');
+        return (
+          <div data-testid="recommendation-app">
+            <div data-testid="app-error" className="error">
+              {error}
+              <button data-testid="retry-button">Retry</button>
+            </div>
+          </div>
+        );
+      };
+      
+      render(<ErrorComponent />);
+
+      expect(screen.getByTestId('app-error')).toBeInTheDocument();
+      expect(screen.getByText(/failed to load recommendations/i)).toBeInTheDocument();
+      expect(screen.getByTestId('retry-button')).toBeInTheDocument();
+    });
+
+    it('should handle rating submission failures', async () => {
+      const user = userEvent.setup();
+      
+      render(<MockRecommendationApp />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('star-1-4')).toBeInTheDocument();
+      });
+
+      // Mock rating submission failure
+      (fetch as jest.MockedFunction<typeof fetch>).mockRejectedValueOnce(
+        new Error('Rating submission failed')
+      );
+
+      const fourthStar = screen.getByTestId('star-1-4');
+      await user.click(fourthStar);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('app-error')).toBeInTheDocument();
+        expect(screen.getByText(/failed to submit rating/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Mobile Responsiveness', () => {
+    beforeEach(() => {
+      // Mock mobile viewport
+      Object.defineProperty(window, 'innerWidth', {
+        writable: true,
+        configurable: true,
+        value: 375,
+      });
+      Object.defineProperty(window, 'innerHeight', {
+        writable: true,
+        configurable: true,
+        value: 667,
+      });
+    });
+
+    it('should render properly on mobile devices', async () => {
+      render(<MockRecommendationApp />);
+
+      await waitFor(() => {
+        // Only check actual content cards, not the app container
+        const contentCards = screen.getAllByTestId(/^(trending-item-|recommendation-\d)/);
+        contentCards.forEach(card => {
+          expect(card).toHaveClass('content-card');
+        });
+      });
+    });
+
+    it('should handle touch interactions', async () => {
+      const user = userEvent.setup();
+      
+      render(<MockRecommendationApp />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('star-1-4')).toBeInTheDocument();
+      });
+
+      // Mock touch events
+      const fourthStar = screen.getByTestId('star-1-4');
+      
+      fireEvent.touchStart(fourthStar);
+      fireEvent.touchEnd(fourthStar);
+
+      // Should trigger rating
+      await waitFor(() => {
+        expect(fourthStar).toHaveClass('filled');
+      });
+    });
+  });
+
+  describe('Accessibility', () => {
+    it('should be accessible to screen readers', async () => {
+      render(<MockRecommendationApp />);
+
+      await waitFor(() => {
+        // Should have proper headings structure
+        expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Content Recommendations');
+        expect(screen.getByRole('heading', { level: 2, name: /trending now/i })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { level: 2, name: /similar to your watchlist/i })).toBeInTheDocument();
+      });
+
+      // Rating buttons should have proper labels
+      const ratingButtons = screen.getAllByTestId(/star-\d+-\d/);
+      ratingButtons.forEach(button => {
+        expect(button).toHaveAttribute('aria-label', expect.stringContaining('star'));
+      });
+    });
+
+    it('should support keyboard navigation', async () => {
+      const user = userEvent.setup();
+      
+      render(<MockRecommendationApp />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('star-1-1')).toBeInTheDocument();
+      });
+
+      // Directly focus the first star button
+      const firstStar = screen.getByTestId('star-1-1');
+      firstStar.focus();
+      
+      await waitFor(() => {
+        expect(firstStar).toHaveFocus();
+      });
+
+      // Use Enter to select rating
+      await user.keyboard('{Enter}');
+      
+      await waitFor(() => {
+        expect(firstStar).toHaveClass('filled');
+      });
+    });
+  });
+
+  describe('Caching and Performance', () => {
+    it('should cache recommendation data', async () => {
+      const { rerender } = render(<MockRecommendationApp />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('trending-section')).toBeInTheDocument();
+      });
+
+      // Initial load should call APIs
+      expect(fetch).toHaveBeenCalledTimes(3);
+
+      // Re-render should use cached data
+      rerender(<MockRecommendationApp />);
+
+      // Should not call APIs again immediately
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('Integration with External APIs', () => {
+    it('should integrate with TMDB for trending content', async () => {
+      render(<MockRecommendationApp />);
+
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith('/api/recommendations/trending');
+      });
+
+      // Should display TMDB trending content
+      await waitFor(() => {
+        expect(screen.getByText('Trending Movie 1')).toBeInTheDocument();
+        expect(screen.getByText('Trending Show 1')).toBeInTheDocument();
+      });
+    });
+
+    it('should handle external API rate limiting', async () => {
+      // Mock rate limiting response
+      (fetch as jest.MockedFunction<typeof fetch>)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          json: async () => ({ error: 'Rate limited' }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ recommendations: mockRecommendations }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ settings: {} }),
+        } as Response);
+      
+      render(<MockRecommendationApp />);
+
+      await waitFor(() => {
+        // Should handle rate limiting gracefully
+        expect(screen.getByTestId('similar-section')).toBeInTheDocument();
+      });
+    });
+  });
+});

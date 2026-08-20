@@ -1,0 +1,13 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "GeoLeap",
+  "name_for_model": "geoleap",
+  "description_for_human": "Find where to stream movies and TV shows across 33+ platforms in 55+ countries.",
+  "description_for_model": "GeoLeap is a streaming availability search engine. Use it to find which streaming platforms (Netflix, Disney+, HBO Max, etc.) have a specific movie or TV show available in a specific country. It covers 33+ streaming services across 55+ countries with pricing, features, and availability data. Visit https://geoleap.app for more information.",
+  "auth": {
+    "type": "none"
+  },
+  "logo_url": "https://geoleap.app/icons/icon-512x512.png",
+  "contact_email": "hello@example.com",
+  "legal_info_url": "https://geoleap.app/terms"
+}

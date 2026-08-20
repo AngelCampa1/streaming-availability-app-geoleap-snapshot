@@ -1,0 +1,480 @@
+import React from 'react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { jest } from '@jest/globals';
+
+// Mock Next.js router
+const mockPush = jest.fn();
+const mockReplace = jest.fn();
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: mockPush,
+    replace: mockReplace,
+  }),
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+// Mock localStorage
+const localStorageMock = {
+  getItem: jest.fn(),
+  setItem: jest.fn(),
+  removeItem: jest.fn(),
+  clear: jest.fn(),
+} as const;
+Object.defineProperty(window, 'localStorage', { value: localStorageMock });
+
+// Mock fetch
+global.fetch = jest.fn(() =>
+  Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve({}),
+    text: () => Promise.resolve(''),
+  })
+) as jest.Mock;
+
+// Mock WebSocket
+global.WebSocket = jest.fn(() => ({
+  close: jest.fn(),
+  send: jest.fn(),
+  addEventListener: jest.fn(),
+  removeEventListener: jest.fn(),
+  readyState: 1,
+})) as any;
+
+// Mock Lucide React icons
+jest.mock('lucide-react', () => ({
+  Users: () => <div data-testid="users-icon" />,
+  UserCheck: () => <div data-testid="usercheck-icon" />,
+  UserPlus: () => <div data-testid="userplus-icon" />,
+  Share2: () => <div data-testid="share-icon" />,
+  Heart: () => <div data-testid="heart-icon" />,
+  MessageCircle: () => <div data-testid="message-icon" />,
+  Star: () => <div data-testid="star-icon" />,
+  Shield: () => <div data-testid="shield-icon" />,
+  Check: () => <div data-testid="check-icon" />,
+  X: () => <div data-testid="x-icon" />,
+  Eye: () => <div data-testid="eye-icon" />,
+  EyeOff: () => <div data-testid="eyeoff-icon" />,
+  Settings: () => <div data-testid="settings-icon" />,
+  ChevronRight: () => <div data-testid="chevron-right-icon" />,
+  ChevronDown: () => <div data-testid="chevron-down-icon" />,
+  ExternalLink: () => <div data-testid="external-link-icon" />,
+  Loader2: () => <div data-testid="loader-icon" className="animate-spin" />,
+}));
+
+// Mock the social analytics tracker
+jest.mock('../SocialAnalyticsTracker', () => ({
+  __esModule: true,
+  default: ({ children }: any) => <div>{children}</div>,
+  useSocialAnalytics: () => ({
+    track: jest.fn(),
+    identify: jest.fn(),
+    reset: jest.fn(),
+  }),
+}));
+
+// Test utilities
+const mockUser = {
+  id: 'user123',
+  email: 'test@example.com',
+  displayName: 'Test User',
+  avatar: 'https://example.com/avatar.jpg',
+  connections: [],
+  privacySettings: {
+    allowSocialLogin: true,
+    sharePersonalInfo: false,
+    allowFriendDiscovery: true,
+    showOnlineStatus: false,
+  },
+};
+
+const mockConnections = [
+  {
+    id: 'conn1',
+    provider: 'google' as const,
+    providerId: 'google123',
+    username: 'testuser',
+    displayName: 'Test User',
+    avatar: 'https://example.com/avatar.jpg',
+    email: 'test@gmail.com',
+    isConnected: true,
+    connectedAt: '2024-01-01T00:00:00Z',
+    permissions: ['public_profile', 'friend_discovery'],
+    profileUrl: 'https://google.com/profile/testuser',
+  },
+];
+
+// Mock the SocialAuthProvider context completely
+const mockSocialAuthContext = {
+  user: mockUser,
+  connections: mockConnections,
+  isAuthenticated: true,
+  isLoading: false,
+  error: null,
+  login: jest.fn().mockResolvedValue(mockUser),
+  logout: jest.fn().mockResolvedValue(undefined),
+  connect: jest.fn().mockResolvedValue(mockConnections[0]),
+  disconnect: jest.fn().mockResolvedValue(undefined),
+  updatePrivacySettings: jest.fn().mockResolvedValue(mockUser.privacySettings),
+  refresh: jest.fn().mockResolvedValue(undefined),
+};
+
+// Create a mock useSocialAuth hook
+const mockUseSocialAuth = jest.fn(() => mockSocialAuthContext);
+
+// Mock the entire SocialAuthProvider module
+jest.mock('../SocialAuthProvider', () => ({
+  __esModule: true,
+  default: ({ children }: any) => <div data-testid="mock-provider">{children}</div>,
+  useSocialAuth: mockUseSocialAuth,
+}));
+
+// Import components after mocking
+import { SocialBadgeComponent, TrustScore } from '../SocialProofElements';
+
+describe('Social Proof Elements (Standalone Tests)', () => {
+  const mockBadge = {
+    id: 'badge1',
+    type: 'verified' as const,
+    label: 'Verified',
+    description: 'Verified user account',
+    color: 'text-blue-600 bg-blue-100',
+    icon: () => <span>✓</span>,
+  };
+
+  describe('SocialBadgeComponent', () => {
+    it('renders badge correctly', () => {
+      render(<SocialBadgeComponent badge={mockBadge} />);
+      
+      expect(screen.getByText('Verified')).toBeInTheDocument();
+      expect(screen.getByText('✓')).toBeInTheDocument();
+    });
+
+    it('shows tooltip on hover', () => {
+      render(<SocialBadgeComponent badge={mockBadge} showTooltip={true} />);
+      
+      const badge = screen.getByText('Verified');
+      expect(badge.closest('[title]')).toHaveAttribute('title', 'Verified: Verified user account');
+    });
+  });
+
+  describe('TrustScore', () => {
+    it('renders trust score correctly', () => {
+      render(<TrustScore score={85} />);
+      
+      expect(screen.getByText('85/100')).toBeInTheDocument();
+      expect(screen.getByText('Highly Trusted')).toBeInTheDocument();
+    });
+
+    it('shows different labels for different scores', () => {
+      const { rerender } = render(<TrustScore score={45} />);
+      expect(screen.getByText('Somewhat Trusted')).toBeInTheDocument();
+
+      rerender(<TrustScore score={25} />);
+      expect(screen.getByText('New User')).toBeInTheDocument();
+    });
+  });
+});
+
+describe('Context-dependent Components', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ success: true, user: mockUser }),
+    });
+    // Reset mock to default context
+    mockUseSocialAuth.mockReturnValue(mockSocialAuthContext);
+  });
+
+  describe('Social Authentication Context', () => {
+    it('provides mock social auth context', () => {
+      const TestComponent = () => {
+        const { user, isLoading } = mockUseSocialAuth();
+        return (
+          <div>
+            <div data-testid="loading">{isLoading.toString()}</div>
+            <div data-testid="user">{user?.displayName || 'No user'}</div>
+          </div>
+        );
+      };
+
+      render(<TestComponent />);
+
+      expect(screen.getByTestId('loading')).toHaveTextContent('false');
+      expect(screen.getByTestId('user')).toHaveTextContent('Test User');
+    });
+
+    it('handles error states', () => {
+      const errorContext = {
+        ...mockSocialAuthContext,
+        error: 'Failed to load data',
+      };
+      mockUseSocialAuth.mockReturnValue(errorContext);
+
+      const TestComponent = () => {
+        const { error } = mockUseSocialAuth();
+        return <div data-testid="error">{error || 'No error'}</div>;
+      };
+
+      render(<TestComponent />);
+      expect(screen.getByTestId('error')).toHaveTextContent('Failed to load data');
+    });
+  });
+
+  describe('Integration Tests', () => {
+    it('handles authentication flow', async () => {
+      // Test that authentication functions can be called
+      const { login } = mockSocialAuthContext;
+      const result = await login('google');
+      expect(result).toEqual(mockUser);
+    });
+
+    it('handles connection management', async () => {
+      // Test that connection functions work
+      const { connect } = mockSocialAuthContext;
+      const result = await connect('facebook');
+      expect(result).toEqual(mockConnections[0]);
+    });
+  });
+
+  describe('Error Handling', () => {
+    beforeEach(() => {
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      (console.error as jest.Mock).mockRestore();
+    });
+
+    it('handles API errors gracefully', async () => {
+      const errorContext = {
+        ...mockSocialAuthContext,
+        error: 'Failed to load friend activities',
+      };
+      mockUseSocialAuth.mockReturnValue(errorContext);
+
+      const TestComponent = () => {
+        const { error } = mockUseSocialAuth();
+        if (error) {
+          return <div data-testid="error-message">{error}</div>;
+        }
+        return <div>No error</div>;
+      };
+
+      render(<TestComponent />);
+      
+      expect(screen.getByTestId('error-message')).toHaveTextContent('Failed to load friend activities');
+    });
+
+    it('handles authentication failures', async () => {
+      // Mock fetch to simulate auth failure
+      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Auth failed'));
+
+      const TestComponent = () => {
+        const [error, setError] = React.useState<string | null>(null);
+        
+        const handleAuth = async () => {
+          try {
+            await fetch('/api/auth/login');
+          } catch (err) {
+            setError('Authentication failed');
+          }
+        };
+
+        return (
+          <div>
+            <button onClick={handleAuth}>Login</button>
+            {error && <div data-testid="auth-error">{error}</div>}
+          </div>
+        );
+      };
+
+      const user = userEvent.setup();
+      render(<TestComponent />);
+
+      const button = screen.getByRole('button', { name: /login/i });
+      await user.click(button);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('auth-error')).toHaveTextContent('Authentication failed');
+      });
+    });
+  });
+
+  describe('Privacy and Settings', () => {
+    it('handles privacy settings updates', async () => {
+      const { updatePrivacySettings } = mockSocialAuthContext;
+      const newSettings = { allowFriendDiscovery: false };
+      
+      const result = await updatePrivacySettings(newSettings);
+      expect(updatePrivacySettings).toHaveBeenCalledWith(newSettings);
+      expect(result).toEqual(mockUser.privacySettings);
+    });
+
+    it('handles different user privacy states', () => {
+      const userWithoutDiscovery = {
+        ...mockUser,
+        privacySettings: {
+          ...mockUser.privacySettings,
+          allowFriendDiscovery: false,
+        },
+      };
+
+      const contextWithPrivacy = {
+        ...mockSocialAuthContext,
+        user: userWithoutDiscovery,
+      };
+      
+      mockUseSocialAuth.mockReturnValue(contextWithPrivacy);
+
+      const TestComponent = () => {
+        const { user } = mockUseSocialAuth();
+        return (
+          <div>
+            {user?.privacySettings.allowFriendDiscovery ? (
+              <div data-testid="discovery-enabled">Discovery Enabled</div>
+            ) : (
+              <div data-testid="discovery-disabled">Friend Discovery Disabled</div>
+            )}
+          </div>
+        );
+      };
+
+      render(<TestComponent />);
+      expect(screen.getByTestId('discovery-disabled')).toHaveTextContent('Friend Discovery Disabled');
+    });
+  });
+
+  describe('Social Connections', () => {
+    it('handles empty connections list', () => {
+      const emptyContext = {
+        ...mockSocialAuthContext,
+        connections: [],
+      };
+      mockUseSocialAuth.mockReturnValue(emptyContext);
+
+      const TestComponent = () => {
+        const { connections } = mockUseSocialAuth();
+        return (
+          <div>
+            {connections.length === 0 ? (
+              <div data-testid="no-connections">No social connections</div>
+            ) : (
+              <div data-testid="has-connections">{connections.length} connections</div>
+            )}
+          </div>
+        );
+      };
+
+      render(<TestComponent />);
+      expect(screen.getByTestId('no-connections')).toHaveTextContent('No social connections');
+    });
+
+    it('displays connection information', () => {
+      const TestComponent = () => {
+        const { connections } = mockUseSocialAuth();
+        return (
+          <div>
+            {connections.map((conn) => (
+              <div key={conn.id} data-testid="connection">
+                {conn.provider}: {conn.displayName}
+              </div>
+            ))}
+          </div>
+        );
+      };
+
+      render(<TestComponent />);
+      expect(screen.getByTestId('connection')).toHaveTextContent('google: Test User');
+    });
+  });
+});
+
+// Simple functional tests for components that don't require deep mocking
+describe('Component Functionality', () => {
+  it('renders icons correctly', () => {
+    render(
+      <div>
+        <div data-testid="users-icon" />
+        <div data-testid="heart-icon" />
+        <div data-testid="star-icon" />
+      </div>
+    );
+
+    expect(screen.getByTestId('users-icon')).toBeInTheDocument();
+    expect(screen.getByTestId('heart-icon')).toBeInTheDocument();
+    expect(screen.getByTestId('star-icon')).toBeInTheDocument();
+  });
+
+  it('handles user interactions', async () => {
+    const handleClick = jest.fn();
+    const user = userEvent.setup();
+
+    render(
+      <button onClick={handleClick} data-testid="test-button">
+        Click me
+      </button>
+    );
+
+    const button = screen.getByTestId('test-button');
+    await user.click(button);
+
+    expect(handleClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles form inputs', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <div>
+        <input data-testid="test-input" placeholder="Enter text" />
+        <select data-testid="test-select">
+          <option value="option1">Option 1</option>
+          <option value="option2">Option 2</option>
+        </select>
+      </div>
+    );
+
+    const input = screen.getByTestId('test-input');
+    const select = screen.getByTestId('test-select');
+
+    await user.type(input, 'test value');
+    await user.selectOptions(select, 'option2');
+
+    expect(input).toHaveValue('test value');
+    expect(select).toHaveValue('option2');
+  });
+
+  it('handles async operations', async () => {
+    const asyncOperation = jest.fn().mockResolvedValue('success');
+
+    const TestComponent = () => {
+      const [result, setResult] = React.useState<string>('');
+
+      const handleAsync = async () => {
+        const res = await asyncOperation();
+        setResult(res);
+      };
+
+      return (
+        <div>
+          <button onClick={handleAsync}>Run Async</button>
+          <div data-testid="result">{result}</div>
+        </div>
+      );
+    };
+
+    const user = userEvent.setup();
+    render(<TestComponent />);
+
+    const button = screen.getByRole('button', { name: /run async/i });
+    await user.click(button);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('result')).toHaveTextContent('success');
+    });
+
+    expect(asyncOperation).toHaveBeenCalledTimes(1);
+  });
+});

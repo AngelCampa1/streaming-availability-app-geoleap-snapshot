@@ -1,0 +1,125 @@
+# Optimized Multi-stage Production Dockerfile for Next.js Frontend
+# Includes security hardening and performance optimizations
+
+# Build arguments
+ARG NODE_VERSION=20-alpine
+
+# ============================================
+# Stage 1: Dependencies
+# ============================================
+FROM node:${NODE_VERSION} AS deps
+
+# Install system dependencies
+RUN apk add --no-cache libc6-compat
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json package-lock.json* ./
+
+# Install dependencies with clean install
+RUN npm ci --only=production --ignore-scripts && \
+    npm cache clean --force
+
+# ============================================
+# Stage 2: Builder
+# ============================================
+FROM node:${NODE_VERSION} AS builder
+
+WORKDIR /app
+
+# Copy dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+
+# Copy application source
+COPY . .
+
+# Build arguments for environment variables
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_ENVIRONMENT
+ARG NEXT_PUBLIC_APPINSIGHTS_CONNECTION_STRING
+ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID
+ARG NEXT_PUBLIC_APPLE_CLIENT_ID
+ARG NEXT_PUBLIC_USE_PROXY=true
+
+# Set build-time environment variables
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
+    NEXT_PUBLIC_ENVIRONMENT=${NEXT_PUBLIC_ENVIRONMENT} \
+    NEXT_PUBLIC_APPINSIGHTS_CONNECTION_STRING=${NEXT_PUBLIC_APPINSIGHTS_CONNECTION_STRING} \
+    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY} \
+    NEXT_PUBLIC_GOOGLE_CLIENT_ID=${NEXT_PUBLIC_GOOGLE_CLIENT_ID} \
+    NEXT_PUBLIC_APPLE_CLIENT_ID=${NEXT_PUBLIC_APPLE_CLIENT_ID} \
+    NEXT_PUBLIC_USE_PROXY=${NEXT_PUBLIC_USE_PROXY} \
+    NEXT_TELEMETRY_DISABLED=1 \
+    NODE_ENV=production
+
+# Build Next.js application
+RUN npm run build && \
+    # Remove development dependencies
+    npm prune --production && \
+    # Clean npm cache
+    npm cache clean --force
+
+# ============================================
+# Stage 3: Runner (Production)
+# ============================================
+FROM node:${NODE_VERSION} AS runner
+
+# Install security updates
+RUN apk update && \
+    apk upgrade --no-cache && \
+    apk add --no-cache \
+        curl \
+        ca-certificates \
+        tzdata \
+        dumb-init && \
+    rm -rf /var/cache/apk/*
+
+# Set timezone
+ENV TZ=UTC
+
+# Create non-root user
+RUN addgroup -S -g 1001 nodejs && \
+    adduser -S -u 1001 -G nodejs nextjs
+
+WORKDIR /app
+
+# Set to production
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3020
+
+# Copy necessary files from builder
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Security: Set file permissions
+RUN chmod -R 555 /app && \
+    chmod -R 444 /app/.next
+
+# Switch to non-root user
+USER nextjs
+
+# Expose port
+EXPOSE 3020
+
+# Health check
+HEALTHCHECK --interval=30s \
+            --timeout=10s \
+            --start-period=40s \
+            --retries=3 \
+  CMD curl -f http://localhost:3020/api/health || exit 1
+
+# Metadata labels
+LABEL maintainer="hello@example.com" \
+      version="1.0.0" \
+      description="GeoLeap Frontend - Optimized Production Image" \
+      org.opencontainers.image.source="https://github.com/AngelCampa1/geoleap"
+
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+
+# Start Next.js server
+CMD ["node", "server.js"]

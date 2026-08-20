@@ -1,0 +1,66 @@
+{
+  "expo": {
+    "name": "GeoLeap",
+    "slug": "geoleap",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "geoleap",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#3b82f6"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.geoleap.mobile",
+      "buildNumber": "1",
+      "usesAppleSignIn": true,
+      "newArchEnabled": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app uses the camera for scanning QR codes.",
+        "NSPhotoLibraryUsageDescription": "This app accesses your photos to let you share content.",
+        "NSMicrophoneUsageDescription": "This app uses the microphone for voice search."
+      }
+    },
+    "android": {
+      "package": "com.geoleap.mobile",
+      "versionCode": 1,
+      "newArchEnabled": false,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#3b82f6"
+      },
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-asset",
+      "expo-apple-authentication",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.000000000000-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    ],
+    "runtimeVersion": "54.0.0",
+    "extra": {
+      "apiUrl": "https://api.geoleap.app",
+      "eas": {
+        "projectId": "00000000-0000-0000-0000-000000000000"
+      }
+    }
+  }
+}

@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Integration Test Configuration - Database Isolated Execution -->
+<RunSettings>
+  <!-- Test execution configuration -->
+  <RunConfiguration>
+    <!-- Single CPU core for database isolation -->
+    <MaxCpuCount>1</MaxCpuCount>
+    
+    <!-- Disable parallelization to prevent database conflicts -->
+    <DisableParallelization>true</DisableParallelization>
+    
+    <!-- Target platform architecture -->
+    <TargetPlatform>x64</TargetPlatform>
+    
+    <!-- Target framework -->
+    <TargetFrameworkVersion>net9.0</TargetFrameworkVersion>
+    
+    <!-- Test session timeout (30 minutes for integration tests) -->
+    <TestSessionTimeout>1800000</TestSessionTimeout>
+    
+    <!-- Batch size for test execution -->
+    <BatchSize>5</BatchSize>
+  </RunConfiguration>
+
+  <!-- Test framework configuration -->
+  <MSTest>
+    <!-- Capture console output -->
+    <CaptureTraceOutput>true</CaptureTraceOutput>
+    
+    <!-- Timeout for individual integration tests (2 seconds) -->
+    <TestTimeout>2000</TestTimeout>
+    
+    <!-- Sequential execution for database safety -->
+    <Parallelize>
+      <Workers>1</Workers>
+      <Scope>MethodLevel</Scope>
+    </Parallelize>
+  </MSTest>
+
+  <!-- xUnit configuration -->
+  <xUnit>
+    <!-- Disable parallel execution -->
+    <ParallelizeTestCollections>false</ParallelizeTestCollections>
+    <ParallelizeAssembly>false</ParallelizeAssembly>
+    
+    <!-- Method display configuration -->
+    <MethodDisplay>ClassAndMethod</MethodDisplay>
+    
+    <!-- Enable diagnostic messages for integration debugging -->
+    <DiagnosticMessages>true</DiagnosticMessages>
+    
+    <!-- Internal diagnostic messages -->
+    <InternalDiagnosticMessages>false</InternalDiagnosticMessages>
+    
+    <!-- Long running test detection -->
+    <LongRunningTestSeconds>5</LongRunningTestSeconds>
+  </xUnit>
+
+  <!-- Data collection configuration -->
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <!-- Basic code coverage for integration tests -->
+      <DataCollector friendlyName="Code Coverage" uri="datacollector://Microsoft/CodeCoverage/2.0" assemblyQualifiedName="Microsoft.VisualStudio.Coverage.DynamicCoverageDataCollector, Microsoft.VisualStudio.TraceCollector, Version=11.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
+        <Configuration>
+          <CodeCoverage>
+            <ModulePaths>
+              <Include>
+                <ModulePath>.*GeoLeap\.Api\.dll$</ModulePath>
+              </Include>
+              <Exclude>
+                <ModulePath>.*Tests\.dll$</ModulePath>
+                <ModulePath>.*TestFramework\.dll$</ModulePath>
+                <ModulePath>.*Migrations\.dll$</ModulePath>
+              </Exclude>
+            </ModulePaths>
+            <Sources>
+              <Exclude>
+                <Source>.*\\Migrations\\.*</Source>
+                <Source>.*\\obj\\.*</Source>
+              </Exclude>
+            </Sources>
+          </CodeCoverage>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+
+  <!-- Test parameters for integration tests -->
+  <TestRunParameters>
+    <Parameter name="TestTimeout" value="2000" />
+    <Parameter name="Category" value="Integration" />
+    <Parameter name="DatabaseProvider" value="InMemory" />
+    <Parameter name="DatabaseIsolation" value="true" />
+    <Parameter name="MockExternalServices" value="true" />
+    <Parameter name="LogLevel" value="Information" />
+    <Parameter name="EnableRetry" value="true" />
+    <Parameter name="RetryCount" value="2" />
+    <Parameter name="RetryDelay" value="500" />
+  </TestRunParameters>
+
+  <!-- Logging configuration -->
+  <LoggerRunSettings>
+    <Loggers>
+      <Logger friendlyName="console" enabled="True">
+        <Configuration>
+          <Verbosity>normal</Verbosity>
+        </Configuration>
+      </Logger>
+      <Logger friendlyName="trx" enabled="True">
+        <Configuration>
+          <LogFileName>integration-tests.trx</LogFileName>
+        </Configuration>
+      </Logger>
+      <Logger friendlyName="html" enabled="True">
+        <Configuration>
+          <LogFileName>integration-tests.html</LogFileName>
+        </Configuration>
+      </Logger>
+    </Loggers>
+  </LoggerRunSettings>
+</RunSettings>

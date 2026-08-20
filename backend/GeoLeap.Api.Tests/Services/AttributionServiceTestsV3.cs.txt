@@ -1,0 +1,501 @@
+using GeoLeap.Api.Models.GrowthAnalytics;
+using GeoLeap.Api.Services.GrowthAnalytics;
+using GeoLeap.Api.Tests.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
+using NSubstitute;
+using Xunit;
+
+namespace GeoLeap.Api.Tests.Services;
+
+[Collection("MinimalTest")]
+public class AttributionServiceTestsV3 : IClassFixture<MinimalWebApplicationFactory>
+{
+    private readonly MinimalWebApplicationFactory _factory;
+    private readonly IAttributionService _attributionService;
+
+    public AttributionServiceTestsV3(MinimalWebApplicationFactory factory)
+    {
+        _factory = factory;
+        _attributionService = _factory.Services.GetRequiredService<IAttributionService>();
+    }
+
+    [Fact]
+    public async Task CalculateAttributionAsync_WithValidConversionEvent_ReturnsAttribution()
+    {
+        // Arrange
+        var conversionEventId = Guid.NewGuid();
+        var expectedAttribution = new AttributionResult
+        {
+            ConversionEventId = conversionEventId,
+            TotalAttribution = 1.0m,
+            AttributionModelId = Guid.NewGuid(),
+            ModelName = "Last Touch",
+            Touchpoints = new List<AttributionTouch>
+            {
+                CreateValidAttributionTouch("organic_search", 0.6m),
+                CreateValidAttributionTouch("paid_search", 0.4m)
+            }
+        };
+
+        _attributionService.CalculateAttributionAsync(Arg.Any<Guid>(), Arg.Any<Guid?>())
+            .Returns(Task.FromResult(expectedAttribution));
+
+        // Act
+        var result = await _attributionService.CalculateAttributionAsync(conversionEventId);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(conversionEventId, result.ConversionEventId);
+        Assert.Equal(1.0m, result.TotalAttribution);
+        Assert.Equal(2, result.Touchpoints.Count);
+    }
+
+    [Fact]
+    public async Task CalculateBatchAttributionAsync_WithMultipleEvents_ReturnsMultipleResults()
+    {
+        // Arrange
+        var conversionEventIds = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+        var expectedResults = conversionEventIds.Select(id => new AttributionResult
+        {
+            ConversionEventId = id,
+            TotalAttribution = 1.0m,
+            Touchpoints = new List<AttributionTouch>()
+        }).ToList();
+
+        _attributionService.CalculateBatchAttributionAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<Guid?>())
+            .Returns(Task.FromResult<IEnumerable<AttributionResult>>(expectedResults));
+
+        // Act
+        var result = await _attributionService.CalculateBatchAttributionAsync(conversionEventIds);
+
+        // Assert
+        Assert.NotNull(result);
+        var resultList = result.ToList();
+        Assert.Equal(conversionEventIds.Length, resultList.Count);
+        Assert.All(resultList, r => Assert.Equal(1.0m, r.TotalAttribution));
+    }
+
+    [Theory]
+    [InlineData("user-123", 30)]
+    [InlineData("user-456", 14)]
+    [InlineData("user-789", 7)]
+    public async Task GetUserJourneyAsync_WithValidParameters_ReturnsJourney(string userId, int lookbackDays)
+    {
+        // Arrange
+        var conversionDate = DateTime.UtcNow;
+        var expectedJourney = new List<AttributionTouch>
+        {
+            CreateValidAttributionTouch("organic_search", 0.3m, conversionDate.AddDays(-10)),
+            CreateValidAttributionTouch("email", 0.3m, conversionDate.AddDays(-5)),
+            CreateValidAttributionTouch("direct", 0.4m, conversionDate.AddDays(-1))
+        };
+
+        _attributionService.GetUserJourneyAsync(Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<int>())
+            .Returns(Task.FromResult(expectedJourney));
+
+        // Act
+        var result = await _attributionService.GetUserJourneyAsync(userId, conversionDate, lookbackDays);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(expectedJourney.Count, result.Count);
+        Assert.All(result, touch => Assert.True(touch.Attribution > 0));
+    }
+
+    [Fact]
+    public async Task CreateAttributionModelAsync_WithValidModel_ReturnsCreatedModel()
+    {
+        // Arrange
+        var newModel = new AttributionModel
+        {
+            Name = "Custom Linear Model",
+            Type = AttributionModelType.Linear,
+            Description = "Equal weight attribution across all touchpoints",
+            Settings = "{\"weightDecay\": 0.1}",
+            IsDefault = false
+        };
+
+        var createdModel = new AttributionModel
+        {
+            Id = Guid.NewGuid(),
+            Name = newModel.Name,
+            Type = newModel.Type,
+            Description = newModel.Description,
+            Settings = newModel.Settings,
+            IsDefault = newModel.IsDefault,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        _attributionService.CreateAttributionModelAsync(Arg.Any<AttributionModel>())
+            .Returns(Task.FromResult(createdModel));
+
+        // Act
+        var result = await _attributionService.CreateAttributionModelAsync(newModel);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.NotEqual(Guid.Empty, result.Id);
+        Assert.Equal(newModel.Name, result.Name);
+        Assert.Equal(newModel.Type, result.Type);
+        Assert.True(result.CreatedAt > DateTime.MinValue);
+    }
+
+    [Fact]
+    public async Task UpdateAttributionModelAsync_WithValidModel_ReturnsUpdatedModel()
+    {
+        // Arrange
+        var modelId = Guid.NewGuid();
+        var updateModel = new AttributionModel
+        {
+            Name = "Updated Model Name",
+            Description = "Updated description",
+            Settings = "{\"newSetting\": true}"
+        };
+
+        var updatedModel = new AttributionModel
+        {
+            Id = modelId,
+            Name = updateModel.Name,
+            Description = updateModel.Description,
+            Settings = updateModel.Settings,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        _attributionService.UpdateAttributionModelAsync(Arg.Any<Guid>(), Arg.Any<AttributionModel>())
+            .Returns(Task.FromResult<AttributionModel?>(updatedModel));
+
+        // Act
+        var result = await _attributionService.UpdateAttributionModelAsync(modelId, updateModel);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(modelId, result.Id);
+        Assert.Equal(updateModel.Name, result.Name);
+        Assert.Equal(updateModel.Description, result.Description);
+    }
+
+    [Fact]
+    public async Task GetAttributionModelsAsync_ReturnsAllModels()
+    {
+        // Arrange
+        var expectedModels = new List<AttributionModel>
+        {
+            CreateAttributionModel("First Touch", AttributionModelType.FirstTouch, true),
+            CreateAttributionModel("Last Touch", AttributionModelType.LastTouch, false),
+            CreateAttributionModel("Linear", AttributionModelType.Linear, false),
+            CreateAttributionModel("Time Decay", AttributionModelType.TimeDecay, false)
+        };
+
+        _attributionService.GetAttributionModelsAsync()
+            .Returns(Task.FromResult<IEnumerable<AttributionModel>>(expectedModels));
+
+        // Act
+        var result = await _attributionService.GetAttributionModelsAsync();
+
+        // Assert
+        Assert.NotNull(result);
+        var modelList = result.ToList();
+        Assert.Equal(expectedModels.Count, modelList.Count);
+        Assert.Single(modelList.Where(m => m.IsDefault));
+    }
+
+    [Fact]
+    public async Task GetDefaultAttributionModelAsync_ReturnsDefaultModel()
+    {
+        // Arrange
+        var defaultModel = CreateAttributionModel("Default Model", AttributionModelType.LastTouch, true);
+        
+        _attributionService.GetDefaultAttributionModelAsync()
+            .Returns(Task.FromResult<AttributionModel?>(defaultModel));
+
+        // Act
+        var result = await _attributionService.GetDefaultAttributionModelAsync();
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.True(result.IsDefault);
+        Assert.Equal("Default Model", result.Name);
+    }
+
+    [Fact]
+    public async Task GetAttributionSummaryAsync_WithValidDateRange_ReturnsSummary()
+    {
+        // Arrange
+        var startDate = new DateTime(2023, 1, 1);
+        var endDate = new DateTime(2023, 1, 31);
+        var expectedSummary = new AttributionSummaryResult
+        {
+            StartDate = startDate,
+            EndDate = endDate,
+            AttributionModelId = Guid.NewGuid(),
+            ModelName = "Last Touch",
+            TotalConversions = 150,
+            TotalAttributedValue = 75000m,
+            AverageTimeToConversion = TimeSpan.FromDays(7),
+            AverageTouchpoints = 3.2m,
+            Channels = new List<ChannelAttributionSummary>
+            {
+                new()
+                {
+                    Channel = "organic_search",
+                    Conversions = 75,
+                    AttributedValue = 37500m,
+                    AttributedPercentage = 50.0m,
+                    AverageAttribution = 0.5m
+                },
+                new()
+                {
+                    Channel = "paid_search",
+                    Conversions = 45,
+                    AttributedValue = 22500m,
+                    AttributedPercentage = 30.0m,
+                    AverageAttribution = 0.3m
+                }
+            },
+            TouchpointPositions = new List<TouchpointPositionSummary>
+            {
+                new() { Position = 1, PositionLabel = "First", Touchpoints = 150, AttributedValue = 15000m },
+                new() { Position = 2, PositionLabel = "Middle", Touchpoints = 300, AttributedValue = 30000m },
+                new() { Position = 3, PositionLabel = "Last", Touchpoints = 150, AttributedValue = 30000m }
+            }
+        };
+
+        _attributionService.GetAttributionSummaryAsync(Arg.Any<DateTime>(), Arg.Any<DateTime>(), Arg.Any<Guid?>())
+            .Returns(Task.FromResult(expectedSummary));
+
+        // Act
+        var result = await _attributionService.GetAttributionSummaryAsync(startDate, endDate);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(startDate, result.StartDate);
+        Assert.Equal(endDate, result.EndDate);
+        Assert.Equal(150, result.TotalConversions);
+        Assert.Equal(75000m, result.TotalAttributedValue);
+        Assert.Equal(2, result.Channels.Count);
+        Assert.Equal(3, result.TouchpointPositions.Count);
+    }
+
+    [Fact]
+    public async Task CompareAttributionModelsAsync_WithMultipleModels_ReturnsComparison()
+    {
+        // Arrange
+        var startDate = new DateTime(2023, 1, 1);
+        var endDate = new DateTime(2023, 1, 31);
+        var modelIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        
+        var expectedComparison = new AttributionModelComparisonResult
+        {
+            StartDate = startDate,
+            EndDate = endDate,
+            Models = new List<ModelComparisonSummary>
+            {
+                new()
+                {
+                    ModelId = modelIds[0],
+                    ModelName = "First Touch",
+                    ModelType = AttributionModelType.FirstTouch,
+                    TotalConversions = 100,
+                    TotalAttributedValue = 50000m,
+                    TopChannel = "organic_search",
+                    TopChannelPercentage = 60.0m
+                },
+                new()
+                {
+                    ModelId = modelIds[1],
+                    ModelName = "Last Touch",
+                    ModelType = AttributionModelType.LastTouch,
+                    TotalConversions = 100,
+                    TotalAttributedValue = 50000m,
+                    TopChannel = "paid_search",
+                    TopChannelPercentage = 55.0m
+                }
+            },
+            ChannelComparisons = new List<ChannelComparisonResult>
+            {
+                new()
+                {
+                    Channel = "organic_search",
+                    ModelResults = new List<ChannelModelResult>
+                    {
+                        new() { ModelId = modelIds[0], ModelName = "First Touch", AttributedValue = 30000m, AttributedPercentage = 60.0m, Rank = 1 },
+                        new() { ModelId = modelIds[1], ModelName = "Last Touch", AttributedValue = 20000m, AttributedPercentage = 40.0m, Rank = 2 }
+                    },
+                    VariancePercentage = 20.0m,
+                    StandardDeviation = 7071.07m
+                }
+            }
+        };
+
+        _attributionService.CompareAttributionModelsAsync(Arg.Any<DateTime>(), Arg.Any<DateTime>(), Arg.Any<IEnumerable<Guid>>())
+            .Returns(Task.FromResult(expectedComparison));
+
+        // Act
+        var result = await _attributionService.CompareAttributionModelsAsync(startDate, endDate, modelIds);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(startDate, result.StartDate);
+        Assert.Equal(endDate, result.EndDate);
+        Assert.Equal(2, result.Models.Count);
+        Assert.Single(result.ChannelComparisons);
+        Assert.All(result.Models, m => Assert.Equal(100, m.TotalConversions));
+    }
+
+    [Fact]
+    public async Task GetChannelPerformanceAsync_WithValidDateRange_ReturnsPerformance()
+    {
+        // Arrange
+        var startDate = new DateTime(2023, 1, 1);
+        var endDate = new DateTime(2023, 1, 31);
+        var expectedPerformance = new List<ChannelPerformanceResult>
+        {
+            new()
+            {
+                Channel = "organic_search",
+                Source = "google",
+                Medium = "organic",
+                Campaign = "",
+                Impressions = 10000,
+                Clicks = 500,
+                Conversions = 25,
+                AttributedValue = 12500m,
+                ClickThroughRate = 5.0m,
+                ConversionRate = 5.0m,
+                CostPerClick = 0m,
+                CostPerConversion = 0m,
+                ReturnOnAdSpend = 0m,
+                AverageTimeToConversion = TimeSpan.FromDays(3)
+            },
+            new()
+            {
+                Channel = "paid_search",
+                Source = "google",
+                Medium = "cpc",
+                Campaign = "brand_campaign",
+                Impressions = 5000,
+                Clicks = 250,
+                Conversions = 20,
+                AttributedValue = 10000m,
+                ClickThroughRate = 5.0m,
+                ConversionRate = 8.0m,
+                CostPerClick = 2.0m,
+                CostPerConversion = 25.0m,
+                ReturnOnAdSpend = 20.0m,
+                AverageTimeToConversion = TimeSpan.FromDays(1)
+            }
+        };
+
+        _attributionService.GetChannelPerformanceAsync(Arg.Any<DateTime>(), Arg.Any<DateTime>(), Arg.Any<Guid?>())
+            .Returns(Task.FromResult<IEnumerable<ChannelPerformanceResult>>(expectedPerformance));
+
+        // Act
+        var result = await _attributionService.GetChannelPerformanceAsync(startDate, endDate);
+
+        // Assert
+        Assert.NotNull(result);
+        var performanceList = result.ToList();
+        Assert.Equal(2, performanceList.Count);
+        
+        var organicSearch = performanceList.First(p => p.Channel == "organic_search");
+        Assert.Equal(25, organicSearch.Conversions);
+        Assert.Equal(12500m, organicSearch.AttributedValue);
+        Assert.Equal(5.0m, organicSearch.ClickThroughRate);
+        
+        var paidSearch = performanceList.First(p => p.Channel == "paid_search");
+        Assert.Equal(20, paidSearch.Conversions);
+        Assert.Equal(10000m, paidSearch.AttributedValue);
+        Assert.Equal(20.0m, paidSearch.ReturnOnAdSpend);
+    }
+
+    [Fact]
+    public async Task CalculateAttributionAsync_WithSpecificModel_UsesCorrectModel()
+    {
+        // Arrange
+        var conversionEventId = Guid.NewGuid();
+        var modelId = Guid.NewGuid();
+        var expectedAttribution = new AttributionResult
+        {
+            ConversionEventId = conversionEventId,
+            AttributionModelId = modelId,
+            ModelName = "Custom Time Decay",
+            TotalAttribution = 1.0m,
+            Touchpoints = new List<AttributionTouch>()
+        };
+
+        _attributionService.CalculateAttributionAsync(Arg.Any<Guid>(), Arg.Is<Guid?>(id => id == modelId))
+            .Returns(Task.FromResult(expectedAttribution));
+
+        // Act
+        var result = await _attributionService.CalculateAttributionAsync(conversionEventId, modelId);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(modelId, result.AttributionModelId);
+        Assert.Equal("Custom Time Decay", result.ModelName);
+    }
+
+    [Fact]
+    public async Task GetChannelPerformanceAsync_ReturnsAccurateMetrics()
+    {
+        // Arrange
+        var startDate = DateTime.UtcNow.AddDays(-30);
+        var endDate = DateTime.UtcNow;
+        
+        var highPerformanceChannel = new ChannelPerformanceResult
+        {
+            Channel = "email",
+            Conversions = 100,
+            AttributedValue = 50000m,
+            ConversionRate = 10.0m,
+            ReturnOnAdSpend = 25.0m
+        };
+
+        _attributionService.GetChannelPerformanceAsync(Arg.Any<DateTime>(), Arg.Any<DateTime>(), Arg.Any<Guid?>())
+            .Returns(Task.FromResult<IEnumerable<ChannelPerformanceResult>>(new[] { highPerformanceChannel }));
+
+        // Act
+        var result = await _attributionService.GetChannelPerformanceAsync(startDate, endDate);
+
+        // Assert
+        Assert.NotNull(result);
+        var channel = result.First();
+        Assert.True(channel.ConversionRate > 5.0m); // High conversion rate
+        Assert.True(channel.ReturnOnAdSpend > 10.0m); // Good ROAS
+        Assert.True(channel.AttributedValue > 0); // Revenue attribution
+    }
+
+    private static AttributionTouch CreateValidAttributionTouch(string channel, decimal attribution, DateTime? timestamp = null)
+    {
+        return new AttributionTouch
+        {
+            Id = Guid.NewGuid(),
+            EventName = "touchpoint",
+            Channel = channel,
+            Source = $"{channel}_source",
+            Medium = $"{channel}_medium",
+            Campaign = $"{channel}_campaign",
+            Timestamp = timestamp ?? DateTime.UtcNow.AddDays(-5),
+            Attribution = attribution,
+            Properties = "{}",
+            Position = 1,
+            PositionFromEnd = 1
+        };
+    }
+
+    private static AttributionModel CreateAttributionModel(string name, AttributionModelType type, bool isDefault)
+    {
+        return new AttributionModel
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            Type = type,
+            Description = $"Test {name} model",
+            Settings = "{}",
+            IsDefault = isDefault,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+    }
+}

@@ -1,0 +1,109 @@
+services:
+  postgres:
+    container_name: geoleap-postgres-prod
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the external production environment file}
+      POSTGRES_DB: ${POSTGRES_DB:-GeoLeap}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - geoleap-network
+
+  redis:
+    container_name: geoleap-redis-prod
+    image: redis:7-alpine
+    command: ["sh", "-c", "redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in the external production environment file}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - geoleap-network
+
+  backend:
+    container_name: geoleap-backend-prod
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8020:8020"
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:?Set ASPNETCORE_ENVIRONMENT=Production in the external production environment file}
+      ASPNETCORE_URLS: http://+:8020
+      ConnectionStrings__DefaultConnection: ${ConnectionStrings__DefaultConnection:?Set ConnectionStrings__DefaultConnection in the external production environment file}
+      ConnectionStrings__Redis: ${ConnectionStrings__Redis:?Set ConnectionStrings__Redis in the external production environment file}
+      JWT__Secret: ${JWT__Secret:?Set JWT__Secret in the external production environment file}
+      JWT__Issuer: ${JWT__Issuer:-GeoLeap.Api}
+      JWT__Audience: ${JWT__Audience:-GeoLeap.Client}
+      Stripe__SecretKey: ${Stripe__SecretKey:?Set Stripe__SecretKey in the external production environment file}
+      Stripe__PublishableKey: ${Stripe__PublishableKey:?Set Stripe__PublishableKey in the external production environment file}
+      Stripe__WebhookSecret: ${Stripe__WebhookSecret:?Set Stripe__WebhookSecret in the external production environment file}
+      Apple__SharedSecret: ${Apple__SharedSecret:?Set Apple__SharedSecret in the external production environment file}
+      Google__PlayStore__ServiceAccountJson: ${Google__PlayStore__ServiceAccountJson:?Set Google__PlayStore__ServiceAccountJson in the external production environment file}
+      ENABLE_HANGFIRE: ${ENABLE_HANGFIRE:-true}
+      ENABLE_BACKGROUND_SERVICES: ${ENABLE_BACKGROUND_SERVICES:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: curl -f http://localhost:8020/health/live || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - geoleap-network
+
+  frontend:
+    container_name: geoleap-frontend-prod
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    ports:
+      - "3020:3020"
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.geoleap.app}
+      INTERNAL_API_URL: http://backend:8020
+      PORT: 3020
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:?Set NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY in the external production environment file}
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: curl -f http://localhost:3020 || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - geoleap-network
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  geoleap-network:
+    driver: bridge

@@ -1,0 +1,43 @@
+<Project>
+  <PropertyGroup>
+    <!-- PERFORMANCE: Optimize test execution -->
+    <TestRuntime>net9.0</TestRuntime>
+    <LangVersion>12</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    
+    <!-- PERFORMANCE: Enable parallel test execution -->
+    <ParallelizeTestCollections>true</ParallelizeTestCollections>
+    <ParallelizeAssembly>true</ParallelizeAssembly>
+    <MaxCpuCount>0</MaxCpuCount>
+    
+    <!-- PERFORMANCE: Optimize compilation -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningsAsErrors />
+    <WarningsNotAsErrors />
+    
+    <!-- PERFORMANCE: Reduce build output -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    
+    <!-- PERFORMANCE: Optimize runtime -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <TieredCompilation>true</TieredCompilation>
+    <TieredCompilationQuickJit>true</TieredCompilationQuickJit>
+  </PropertyGroup>
+  
+  <!-- PERFORMANCE: Test-specific optimizations -->
+  <PropertyGroup Condition="'$(IsTestProject)' == 'true'">
+    <CollectCoverage>false</CollectCoverage>
+    <CoverletOutputFormat>opencover</CoverletOutputFormat>
+    <Optimize>true</Optimize>
+    <DebugType>portable</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+  </PropertyGroup>
+  
+  <!-- PERFORMANCE: Runtime configuration -->
+  <ItemGroup>
+    <RuntimeConfigurationOptions Include="System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization" Value="false" />
+    <RuntimeConfigurationOptions Include="System.Text.Json.Serialization.EnableSourceGeneration" Value="true" />
+  </ItemGroup>
+</Project>

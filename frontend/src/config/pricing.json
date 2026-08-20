@@ -1,0 +1,34 @@
+{
+  "plans": {
+    "free": {
+      "name": "Free",
+      "priceUsd": 0,
+      "billingPeriod": "forever",
+      "searches": "Unlimited",
+      "watchlistLimit": "10 items",
+      "features": [
+        "Unlimited streaming searches",
+        "Full platform and country coverage",
+        "VPN recommendations for geo-restricted content",
+        "Watchlist up to 10 titles",
+        "Community support"
+      ]
+    },
+    "premium": {
+      "name": "Premium",
+      "priceUsd": 15,
+      "billingPeriod": "year",
+      "monthlyEquivalentUsd": 2,
+      "trialDays": 30,
+      "refundDays": 14,
+      "features": [
+        "Everything in Free",
+        "Ad-free experience",
+        "No VPN affiliate recommendations",
+        "Unlimited watchlist and content alerts",
+        "Priority support"
+      ]
+    }
+  },
+  "lastUpdated": "2026-05-31"
+}

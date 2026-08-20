@@ -1,0 +1,501 @@
+/**
+ * End-to-End Social Sharing Workflow Tests
+ * Tests complete social sharing functionality across platforms
+ */
+
+import { test, expect, Page, BrowserContext } from '@playwright/test';
+
+// Test configuration
+const BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:3000';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+// Test content for sharing
+const TEST_CONTENT = {
+  article: {
+    id: 'article_123',
+    title: 'Test Article Title',
+    description: 'This is a test article description for social sharing.',
+    url: `${BASE_URL}/articles/test-article`,
+    imageUrl: `${BASE_URL}/images/test-article.jpg`
+  },
+  location: {
+    id: 'location_456',
+    name: 'Test Location',
+    coordinates: { lat: 40.7128, lng: -74.0060 },
+    description: 'Amazing test location for sharing'
+  },
+  achievement: {
+    id: 'achievement_789',
+    title: 'Test Achievement Unlocked',
+    description: 'User completed a test milestone',
+    badgeUrl: `${BASE_URL}/badges/test-achievement.png`
+  }
+};
+
+test.describe('Social Sharing E2E Workflows', () => {
+  let page: Page;
+  let context: BrowserContext;
+
+  test.beforeEach(async ({ browser }) => {
+    context = await browser.newContext({
+      viewport: { width: 1280, height: 720 },
+      permissions: ['clipboard-read', 'clipboard-write']
+    });
+    
+    page = await context.newPage();
+    
+    // Mock social platform sharing APIs
+    await page.route('**/share/**', async route => {
+      const url = route.request().url();
+      const platform = url.includes('facebook') ? 'facebook' : 
+                     url.includes('twitter') ? 'twitter' :
+                     url.includes('instagram') ? 'instagram' : 
+                     url.includes('linkedin') ? 'linkedin' : 'unknown';
+      
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          platform,
+          shareId: `share_${Date.now()}`,
+          shareUrl: `https://${platform}.com/share/test`
+        })
+      });
+    });
+
+    // Mock API endpoints
+    await page.route(`${API_URL}/api/social-sharing/**`, async route => {
+      const method = route.request().method();
+      const url = route.request().url();
+      
+      if (method === 'POST' && url.includes('/share')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            shareId: 'share_123',
+            analytics: {
+              views: 0,
+              clicks: 0,
+              shares: 1
+            }
+          })
+        });
+      } else if (method === 'GET' && url.includes('/analytics')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            totalShares: 156,
+            platformBreakdown: {
+              facebook: 45,
+              twitter: 38,
+              instagram: 42,
+              linkedin: 31
+            },
+            engagement: {
+              likes: 89,
+              comments: 23,
+              reshares: 12
+            }
+          })
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true })
+        });
+      }
+    });
+
+    // Login user
+    await page.goto(`${BASE_URL}/login`);
+    await page.fill('[data-testid="email-input"]', 'test@example.com');
+    await page.fill('[data-testid="password-input"]', 'password123');
+    await page.click('[data-testid="login-button"]');
+    await page.waitForURL('**/dashboard');
+  });
+
+  test.afterEach(async () => {
+    await context.close();
+  });
+
+  test('Share Article to Facebook', async () => {
+    // Navigate to article
+    await page.goto(`${BASE_URL}/articles/test-article`);
+    
+    // Open share modal
+    const shareButton = page.locator('[data-testid="share-article-button"]');
+    await expect(shareButton).toBeVisible();
+    await shareButton.click();
+    
+    // Verify share modal opens
+    const shareModal = page.locator('[data-testid="social-share-modal"]');
+    await expect(shareModal).toBeVisible();
+    
+    // Verify content preview
+    const contentPreview = page.locator('[data-testid="share-content-preview"]');
+    await expect(contentPreview).toContainText(TEST_CONTENT.article.title);
+    await expect(contentPreview).toContainText(TEST_CONTENT.article.description);
+    
+    // Select Facebook platform
+    const facebookButton = page.locator('[data-testid="share-facebook"]');
+    await expect(facebookButton).toBeVisible();
+    await expect(facebookButton).toBeEnabled();
+    
+    // Add custom message
+    const messageInput = page.locator('[data-testid="share-message-input"]');
+    await messageInput.fill('Check out this amazing article! #test #sharing');
+    
+    // Share to Facebook
+    const [popup] = await Promise.all([
+      context.waitForEvent('page'),
+      facebookButton.click()
+    ]);
+    
+    // Verify Facebook share popup
+    expect(popup.url()).toContain('facebook.com');
+    await popup.waitForLoadState();
+    
+    // Simulate successful share
+    await popup.close();
+    
+    // Verify success notification
+    const successNotification = page.locator('[data-testid="share-success-notification"]');
+    await expect(successNotification).toBeVisible();
+    await expect(successNotification).toContainText('Shared to Facebook successfully');
+    
+    // Verify modal closes
+    await expect(shareModal).not.toBeVisible();
+  });
+
+  test('Share Location to Multiple Platforms', async () => {
+    await page.goto(`${BASE_URL}/locations/test-location`);
+    
+    const shareButton = page.locator('[data-testid="share-location-button"]');
+    await shareButton.click();
+    
+    const shareModal = page.locator('[data-testid="social-share-modal"]');
+    await expect(shareModal).toBeVisible();
+    
+    // Verify location preview
+    const locationPreview = page.locator('[data-testid="location-share-preview"]');
+    await expect(locationPreview).toContainText(TEST_CONTENT.location.name);
+    await expect(locationPreview).toContainText(TEST_CONTENT.location.description);
+    
+    // Test multiple platform sharing
+    const platforms = ['facebook', 'twitter', 'instagram'];
+    
+    for (const platform of platforms) {
+      const platformButton = page.locator(`[data-testid="share-${platform}"]`);
+      await expect(platformButton).toBeVisible();
+      
+      const [popup] = await Promise.all([
+        context.waitForEvent('page'),
+        platformButton.click()
+      ]);
+      
+      expect(popup.url()).toContain(platform);
+      await popup.close();
+      
+      // Verify platform marked as shared
+      const platformStatus = page.locator(`[data-testid="${platform}-share-status"]`);
+      await expect(platformStatus).toContainText('Shared');
+    }
+    
+    // Verify share count updated
+    const shareCount = page.locator('[data-testid="total-shares-count"]');
+    await expect(shareCount).toContainText('3');
+  });
+
+  test('Copy Share Link Functionality', async () => {
+    await page.goto(`${BASE_URL}/articles/test-article`);
+    
+    const shareButton = page.locator('[data-testid="share-article-button"]');
+    await shareButton.click();
+    
+    const shareModal = page.locator('[data-testid="social-share-modal"]');
+    await expect(shareModal).toBeVisible();
+    
+    // Test copy link functionality
+    const copyLinkButton = page.locator('[data-testid="copy-share-link"]');
+    await expect(copyLinkButton).toBeVisible();
+    await copyLinkButton.click();
+    
+    // Verify clipboard content
+    const clipboardText = await page.evaluate(async () => {
+      return await navigator.clipboard.readText();
+    });
+    
+    expect(clipboardText).toBe(TEST_CONTENT.article.url);
+    
+    // Verify copy success feedback
+    const copyFeedback = page.locator('[data-testid="copy-success-feedback"]');
+    await expect(copyFeedback).toBeVisible();
+    await expect(copyFeedback).toContainText('Link copied');
+  });
+
+  test('Share with Privacy Settings', async () => {
+    await page.goto(`${BASE_URL}/profile/privacy`);
+    
+    // Configure privacy settings
+    const sharePrivacyToggle = page.locator('[data-testid="allow-social-sharing"]');
+    await sharePrivacyToggle.check();
+    
+    const publicShareToggle = page.locator('[data-testid="allow-public-shares"]');
+    await publicShareToggle.uncheck();
+    
+    await page.click('[data-testid="save-privacy-settings"]');
+    
+    // Navigate to content
+    await page.goto(`${BASE_URL}/articles/test-article`);
+    await page.click('[data-testid="share-article-button"]');
+    
+    const shareModal = page.locator('[data-testid="social-share-modal"]');
+    await expect(shareModal).toBeVisible();
+    
+    // Verify privacy notice
+    const privacyNotice = page.locator('[data-testid="privacy-share-notice"]');
+    await expect(privacyNotice).toBeVisible();
+    await expect(privacyNotice).toContainText('Private sharing enabled');
+    
+    // Verify public platform options disabled
+    const instagramButton = page.locator('[data-testid="share-instagram"]');
+    await expect(instagramButton).toBeDisabled();
+    
+    const disabledNotice = page.locator('[data-testid="public-sharing-disabled"]');
+    await expect(disabledNotice).toContainText('Public sharing disabled in privacy settings');
+  });
+
+  test('Achievement Sharing Workflow', async () => {
+    await page.goto(`${BASE_URL}/achievements`);
+    
+    // Trigger achievement unlock simulation
+    const unlockButton = page.locator('[data-testid="unlock-test-achievement"]');
+    await unlockButton.click();
+    
+    // Verify achievement modal appears
+    const achievementModal = page.locator('[data-testid="achievement-unlock-modal"]');
+    await expect(achievementModal).toBeVisible();
+    await expect(achievementModal).toContainText(TEST_CONTENT.achievement.title);
+    
+    // Share achievement
+    const shareAchievementButton = page.locator('[data-testid="share-achievement-button"]');
+    await shareAchievementButton.click();
+    
+    // Verify achievement share modal
+    const shareModal = page.locator('[data-testid="social-share-modal"]');
+    await expect(shareModal).toBeVisible();
+    
+    // Verify achievement preview
+    const achievementPreview = page.locator('[data-testid="achievement-share-preview"]');
+    await expect(achievementPreview).toContainText(TEST_CONTENT.achievement.title);
+    await expect(achievementPreview).toContainText(TEST_CONTENT.achievement.description);
+    
+    // Verify badge image
+    const badgeImage = page.locator('[data-testid="achievement-badge-image"]');
+    await expect(badgeImage).toBeVisible();
+    
+    // Share to Twitter
+    const twitterButton = page.locator('[data-testid="share-twitter"]');
+    const [popup] = await Promise.all([
+      context.waitForEvent('page'),
+      twitterButton.click()
+    ]);
+    
+    expect(popup.url()).toContain('twitter.com');
+    await popup.close();
+    
+    // Verify achievement marked as shared
+    const sharedBadge = page.locator('[data-testid="achievement-shared-badge"]');
+    await expect(sharedBadge).toBeVisible();
+  });
+
+  test('Share Analytics Tracking', async () => {
+    await page.goto(`${BASE_URL}/dashboard/analytics`);
+    
+    // Navigate to social sharing analytics
+    await page.click('[data-testid="social-sharing-analytics"]');
+    
+    // Verify analytics dashboard
+    const analyticsContainer = page.locator('[data-testid="sharing-analytics-container"]');
+    await expect(analyticsContainer).toBeVisible();
+    
+    // Verify share statistics
+    const totalShares = page.locator('[data-testid="total-shares-metric"]');
+    await expect(totalShares).toContainText('156');
+    
+    // Verify platform breakdown
+    const facebookShares = page.locator('[data-testid="facebook-shares-count"]');
+    await expect(facebookShares).toContainText('45');
+    
+    const twitterShares = page.locator('[data-testid="twitter-shares-count"]');
+    await expect(twitterShares).toContainText('38');
+    
+    // Verify engagement metrics
+    const likes = page.locator('[data-testid="total-likes-metric"]');
+    await expect(likes).toContainText('89');
+    
+    const comments = page.locator('[data-testid="total-comments-metric"]');
+    await expect(comments).toContainText('23');
+    
+    // Test date range filtering
+    const dateFilter = page.locator('[data-testid="analytics-date-filter"]');
+    await dateFilter.selectOption('last-7-days');
+    
+    // Verify filtered results
+    await page.waitForTimeout(1000); // Wait for data refresh
+    const weeklyShares = page.locator('[data-testid="weekly-shares-metric"]');
+    await expect(weeklyShares).toBeVisible();
+  });
+
+  test('Bulk Content Sharing', async () => {
+    await page.goto(`${BASE_URL}/content-library`);
+    
+    // Select multiple content items
+    const contentItems = page.locator('[data-testid="content-item-checkbox"]');
+    await contentItems.first().check();
+    await contentItems.nth(1).check();
+    await contentItems.nth(2).check();
+    
+    // Open bulk share modal
+    const bulkShareButton = page.locator('[data-testid="bulk-share-button"]');
+    await expect(bulkShareButton).toBeVisible();
+    await bulkShareButton.click();
+    
+    const bulkShareModal = page.locator('[data-testid="bulk-share-modal"]');
+    await expect(bulkShareModal).toBeVisible();
+    
+    // Verify selected content count
+    const selectedCount = page.locator('[data-testid="selected-content-count"]');
+    await expect(selectedCount).toContainText('3 items selected');
+    
+    // Select sharing platforms
+    await page.check('[data-testid="bulk-facebook-checkbox"]');
+    await page.check('[data-testid="bulk-twitter-checkbox"]');
+    
+    // Set bulk message
+    const bulkMessage = page.locator('[data-testid="bulk-message-input"]');
+    await bulkMessage.fill('Sharing amazing content! #bulk #social');
+    
+    // Schedule sharing
+    const scheduleToggle = page.locator('[data-testid="schedule-sharing-toggle"]');
+    await scheduleToggle.check();
+    
+    const scheduleTime = page.locator('[data-testid="schedule-time-input"]');
+    const futureTime = new Date(Date.now() + 3600000).toISOString().slice(0, 16);
+    await scheduleTime.fill(futureTime);
+    
+    // Execute bulk share
+    const executeButton = page.locator('[data-testid="execute-bulk-share"]');
+    await executeButton.click();
+    
+    // Verify success notification
+    const successNotification = page.locator('[data-testid="bulk-share-success"]');
+    await expect(successNotification).toBeVisible();
+    await expect(successNotification).toContainText('3 items scheduled for sharing');
+  });
+
+  test('Share Modal Accessibility', async () => {
+    await page.goto(`${BASE_URL}/articles/test-article`);
+    await page.click('[data-testid="share-article-button"]');
+    
+    const shareModal = page.locator('[data-testid="social-share-modal"]');
+    await expect(shareModal).toBeVisible();
+    
+    // Test keyboard navigation
+    await page.keyboard.press('Tab');
+    let focusedElement = page.locator(':focus');
+    await expect(focusedElement).toHaveAttribute('data-testid', 'share-facebook');
+    
+    await page.keyboard.press('Tab');
+    focusedElement = page.locator(':focus');
+    await expect(focusedElement).toHaveAttribute('data-testid', 'share-twitter');
+    
+    // Test ARIA attributes
+    await expect(shareModal).toHaveAttribute('role', 'dialog');
+    await expect(shareModal).toHaveAttribute('aria-labelledby', 'share-modal-title');
+    
+    // Test escape key closes modal
+    await page.keyboard.press('Escape');
+    await expect(shareModal).not.toBeVisible();
+  });
+
+  test('Share Error Handling', async () => {
+    // Mock API failure
+    await page.route(`${API_URL}/api/social-sharing/share`, async route => {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: 'Sharing service temporarily unavailable'
+        })
+      });
+    });
+    
+    await page.goto(`${BASE_URL}/articles/test-article`);
+    await page.click('[data-testid="share-article-button"]');
+    
+    const shareModal = page.locator('[data-testid="social-share-modal"]');
+    await expect(shareModal).toBeVisible();
+    
+    // Attempt to share
+    const facebookButton = page.locator('[data-testid="share-facebook"]');
+    await facebookButton.click();
+    
+    // Verify error message
+    const errorMessage = page.locator('[data-testid="share-error-message"]');
+    await expect(errorMessage).toBeVisible();
+    await expect(errorMessage).toContainText('Sharing service temporarily unavailable');
+    
+    // Verify retry button
+    const retryButton = page.locator('[data-testid="retry-share-button"]');
+    await expect(retryButton).toBeVisible();
+    await expect(retryButton).toBeEnabled();
+  });
+
+  test('Mobile Responsive Sharing', async () => {
+    // Set mobile viewport
+    await page.setViewportSize({ width: 375, height: 667 });
+    
+    await page.goto(`${BASE_URL}/articles/test-article`);
+    
+    // Test mobile share button
+    const mobileShareButton = page.locator('[data-testid="mobile-share-button"]');
+    await expect(mobileShareButton).toBeVisible();
+    await mobileShareButton.click();
+    
+    // Verify mobile share sheet
+    const mobileShareSheet = page.locator('[data-testid="mobile-share-sheet"]');
+    await expect(mobileShareSheet).toBeVisible();
+    
+    // Test native share API fallback
+    await page.addInitScript(() => {
+      // Mock navigator.share
+      Object.defineProperty(navigator, 'share', {
+        value: async (data: any) => {
+          console.log('Native share called with:', data);
+          return Promise.resolve();
+        }
+      });
+    });
+    
+    const nativeShareButton = page.locator('[data-testid="native-share-button"]');
+    if (await nativeShareButton.isVisible()) {
+      await nativeShareButton.click();
+    }
+    
+    // Verify platform buttons are touch-friendly
+    const platformButtons = page.locator('[data-testid^="share-"]');
+    const buttonCount = await platformButtons.count();
+    
+    for (let i = 0; i < buttonCount; i++) {
+      const button = platformButtons.nth(i);
+      const boundingBox = await button.boundingBox();
+      expect(boundingBox?.height).toBeGreaterThanOrEqual(44); // iOS touch target minimum
+    }
+  });
+});

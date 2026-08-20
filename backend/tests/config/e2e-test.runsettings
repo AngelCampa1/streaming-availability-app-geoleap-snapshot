@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- E2E Test Configuration - Full Application Stack Testing -->
+<RunSettings>
+  <!-- Test execution configuration -->
+  <RunConfiguration>
+    <!-- Single CPU core for full isolation -->
+    <MaxCpuCount>1</MaxCpuCount>
+    
+    <!-- Disable parallelization for E2E safety -->
+    <DisableParallelization>true</DisableParallelization>
+    
+    <!-- Target platform architecture -->
+    <TargetPlatform>x64</TargetPlatform>
+    
+    <!-- Target framework -->
+    <TargetFrameworkVersion>net9.0</TargetFrameworkVersion>
+    
+    <!-- Test session timeout (60 minutes for E2E tests) -->
+    <TestSessionTimeout>3600000</TestSessionTimeout>
+    
+    <!-- Batch size for test execution -->
+    <BatchSize>1</BatchSize>
+    
+    <!-- Results directory -->
+    <ResultsDirectory>test-results/e2e</ResultsDirectory>
+  </RunConfiguration>
+
+  <!-- Test framework configuration -->
+  <MSTest>
+    <!-- Capture console output -->
+    <CaptureTraceOutput>true</CaptureTraceOutput>
+    
+    <!-- Timeout for individual E2E tests (10 seconds) -->
+    <TestTimeout>10000</TestTimeout>
+    
+    <!-- Sequential execution -->
+    <Parallelize>
+      <Workers>1</Workers>
+      <Scope>MethodLevel</Scope>
+    </Parallelize>
+  </MSTest>
+
+  <!-- xUnit configuration -->
+  <xUnit>
+    <!-- Disable parallel execution -->
+    <ParallelizeTestCollections>false</ParallelizeTestCollections>
+    <ParallelizeAssembly>false</ParallelizeAssembly>
+    
+    <!-- Method display configuration -->
+    <MethodDisplay>ClassAndMethod</MethodDisplay>
+    
+    <!-- Enable diagnostic messages for E2E debugging -->
+    <DiagnosticMessages>true</DiagnosticMessages>
+    
+    <!-- Internal diagnostic messages -->
+    <InternalDiagnosticMessages>true</InternalDiagnosticMessages>
+    
+    <!-- Long running test detection -->
+    <LongRunningTestSeconds>30</LongRunningTestSeconds>
+    
+    <!-- Stop on fail for E2E tests -->
+    <StopOnFail>false</StopOnFail>
+  </xUnit>
+
+  <!-- Data collection configuration -->
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <!-- Comprehensive code coverage for E2E tests -->
+      <DataCollector friendlyName="Code Coverage" uri="datacollector://Microsoft/CodeCoverage/2.0" assemblyQualifiedName="Microsoft.VisualStudio.Coverage.DynamicCoverageDataCollector, Microsoft.VisualStudio.TraceCollector, Version=11.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
+        <Configuration>
+          <CodeCoverage>
+            <ModulePaths>
+              <Include>
+                <ModulePath>.*GeoLeap\.Api\.dll$</ModulePath>
+              </Include>
+              <Exclude>
+                <ModulePath>.*Tests\.dll$</ModulePath>
+                <ModulePath>.*TestFramework\.dll$</ModulePath>
+                <ModulePath>.*Migrations\.dll$</ModulePath>
+                <ModulePath>.*MockFramework\.dll$</ModulePath>
+              </Exclude>
+            </ModulePaths>
+            <Sources>
+              <Exclude>
+                <Source>.*\\Migrations\\.*</Source>
+                <Source>.*\\obj\\.*</Source>
+                <Source>.*\\bin\\.*</Source>
+              </Exclude>
+            </Sources>
+            <Functions>
+              <Exclude>
+                <Function>.*\.Program\..*</Function>
+                <Function>.*\.Startup\..*</Function>
+              </Exclude>
+            </Functions>
+          </CodeCoverage>
+        </Configuration>
+      </DataCollector>
+      
+      <!-- Screenshot capture for E2E failures -->
+      <DataCollector friendlyName="Screenshot" uri="datacollector://microsoft/Screenshot/1.0" assemblyQualifiedName="Microsoft.VisualStudio.TestTools.DataCollection.Screenshot.ScreenshotDataCollector, Microsoft.VisualStudio.TestTools.DataCollection.Screenshot, Version=15.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
+        <Configuration>
+          <CaptureMode>OnError</CaptureMode>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+
+  <!-- Test parameters for E2E tests -->
+  <TestRunParameters>
+    <Parameter name="TestTimeout" value="10000" />
+    <Parameter name="Category" value="E2E" />
+    <Parameter name="DatabaseProvider" value="InMemory" />
+    <Parameter name="E2EIsolation" value="true" />
+    <Parameter name="MockExternalServices" value="false" />
+    <Parameter name="UseRealExternalServices" value="false" />
+    <Parameter name="LogLevel" value="Information" />
+    <Parameter name="EnableRetry" value="true" />
+    <Parameter name="RetryCount" value="2" />
+    <Parameter name="RetryDelay" value="1000" />
+    <Parameter name="ScreenshotOnFailure" value="true" />
+    <Parameter name="VideoRecording" value="false" />
+    <Parameter name="BrowserHeadless" value="true" />
+    <Parameter name="BrowserTimeout" value="30000" />
+  </TestRunParameters>
+
+  <!-- Logging configuration -->
+  <LoggerRunSettings>
+    <Loggers>
+      <Logger friendlyName="console" enabled="True">
+        <Configuration>
+          <Verbosity>detailed</Verbosity>
+        </Configuration>
+      </Logger>
+      <Logger friendlyName="trx" enabled="True">
+        <Configuration>
+          <LogFileName>e2e-tests.trx</LogFileName>
+        </Configuration>
+      </Logger>
+      <Logger friendlyName="html" enabled="True">
+        <Configuration>
+          <LogFileName>e2e-tests.html</LogFileName>
+        </Configuration>
+      </Logger>
+      <Logger friendlyName="junit" enabled="True">
+        <Configuration>
+          <LogFileName>e2e-tests.xml</LogFileName>
+        </Configuration>
+      </Logger>
+    </Loggers>
+  </LoggerRunSettings>
+</RunSettings>

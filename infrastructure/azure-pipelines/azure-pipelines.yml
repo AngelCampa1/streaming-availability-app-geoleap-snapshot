@@ -1,0 +1,19 @@
+# Azure DevOps Main Pipeline - GeoLeap
+# This is the main CI/CD pipeline that orchestrates all builds
+# Manual trigger only - no automatic CI/CD triggers
+
+trigger: none
+pr: none
+
+stages:
+  # iOS Build
+  - template: ios-build.yml
+
+  # Future: Android Build
+  # - template: android-build.yml
+
+  # Future: Backend Build
+  # - template: backend-build.yml
+
+  # Future: Frontend Build
+  # - template: frontend-build.yml

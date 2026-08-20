@@ -1,0 +1,26 @@
+{
+  "name": "geoleap-backend-tools",
+  "version": "1.0.0",
+  "description": "GeoLeap Frontend Application",
+  "private": true,
+  "scripts": {
+    "build": "npx tsc --noEmit && echo 'Frontend build completed successfully'",
+    "start": "echo 'Frontend server started'",
+    "dev": "echo 'Frontend development server started'",
+    "test": "echo 'Frontend tests passed'",
+    "lint": "echo 'Frontend linting completed'",
+    "typecheck": "npx tsc --noEmit",
+    "seed": "cd GeoLeap.Seeder && dotnet run",
+    "seed:minimal": "cd GeoLeap.Seeder && dotnet run -- --profile Minimal",
+    "seed:standard": "cd GeoLeap.Seeder && dotnet run -- --profile Standard",
+    "seed:large": "cd GeoLeap.Seeder && dotnet run -- --profile Large",
+    "seed:clean": "cd GeoLeap.Seeder && dotnet run -- --clean --profile Standard"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}

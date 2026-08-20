@@ -1,0 +1,485 @@
+using System.Net;
+using Xunit;
+using GeoLeap.Api.Tests.Infrastructure;
+
+namespace GeoLeap.Api.Tests.Integration.Middleware;
+
+/// <summary>
+/// Comprehensive coverage tests for SecurityHeadersMiddleware.
+/// Goal: Exercise all security header injection paths and verify OWASP compliance.
+/// </summary>
+[Collection("RealServicesTest")]
+public class SecurityHeadersMiddlewareCoverageTests : RealServicesTestBase
+{
+    public SecurityHeadersMiddlewareCoverageTests(RealServicesTestFactory factory) : base(factory)
+    {
+    }
+
+    #region Core Security Headers
+
+    [Fact]
+    public async Task SecurityHeaders_InjectsXContentTypeOptions_Always()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - Exercises X-Content-Type-Options injection path
+        Assert.True(response.Headers.Contains("X-Content-Type-Options"));
+        var value = response.Headers.GetValues("X-Content-Type-Options").First();
+        Assert.Equal("nosniff", value);
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_InjectsXFrameOptions_Always()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - Exercises X-Frame-Options injection path
+        Assert.True(response.Headers.Contains("X-Frame-Options"));
+        var value = response.Headers.GetValues("X-Frame-Options").First();
+        Assert.Equal("DENY", value);
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_InjectsXXssProtection_Always()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - Exercises X-XSS-Protection injection path
+        Assert.True(response.Headers.Contains("X-XSS-Protection"));
+        var value = response.Headers.GetValues("X-XSS-Protection").First();
+        Assert.Equal("1; mode=block", value);
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_InjectsReferrerPolicy_Always()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - Exercises Referrer-Policy injection path
+        Assert.True(response.Headers.Contains("Referrer-Policy"));
+        var value = response.Headers.GetValues("Referrer-Policy").First();
+        Assert.Equal("strict-origin-when-cross-origin", value);
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_InjectsContentSecurityPolicy_Always()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - Exercises CSP injection path
+        Assert.True(response.Headers.Contains("Content-Security-Policy"));
+        var csp = response.Headers.GetValues("Content-Security-Policy").First();
+
+        // Verify CSP directives
+        Assert.Contains("default-src 'self'", csp);
+        Assert.Contains("frame-ancestors 'none'", csp);
+        Assert.Contains("base-uri 'self'", csp);
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_InjectsPermissionsPolicy_Always()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - Exercises Permissions-Policy injection path
+        Assert.True(response.Headers.Contains("Permissions-Policy"));
+        var policy = response.Headers.GetValues("Permissions-Policy").First();
+
+        // Verify restricted features
+        Assert.Contains("camera=()", policy);
+        Assert.Contains("microphone=()", policy);
+        Assert.Contains("geolocation=()", policy);
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_InjectsCrossOriginResourcePolicy_ForApiEndpoints()
+    {
+        // Act - API endpoint
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - Exercises CORP injection for API paths
+        Assert.True(response.Headers.Contains("Cross-Origin-Resource-Policy"));
+        var value = response.Headers.GetValues("Cross-Origin-Resource-Policy").First();
+        Assert.Equal("cross-origin", value); // API needs cross-origin access
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_InjectsCrossOriginOpenerPolicy_Always()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - Exercises COOP injection path
+        Assert.True(response.Headers.Contains("Cross-Origin-Opener-Policy"));
+        var value = response.Headers.GetValues("Cross-Origin-Opener-Policy").First();
+        Assert.Equal("same-origin", value);
+    }
+
+    #endregion
+
+    #region HSTS (Production Only)
+
+    [Fact]
+    public async Task SecurityHeaders_InjectsHSTS_InProduction()
+    {
+        // Note: In test environment, HSTS may not be injected
+        // This test verifies the injection path exists
+
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - HSTS only in production with HTTPS
+        // In test environment, this header may not be present
+        if (response.Headers.Contains("Strict-Transport-Security"))
+        {
+            var hsts = response.Headers.GetValues("Strict-Transport-Security").First();
+            Assert.Contains("max-age=", hsts);
+            Assert.Contains("includeSubDomains", hsts);
+        }
+    }
+
+    #endregion
+
+    #region Cache Control Headers
+
+    [Fact]
+    public async Task SecurityHeaders_InjectsCacheControl_ForApiEndpoints()
+    {
+        // Act - API endpoint
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - Exercises cache control injection for API
+        Assert.True(response.Headers.Contains("Cache-Control"));
+        var cacheControl = response.Headers.GetValues("Cache-Control").First();
+
+        // API responses should not be cached
+        Assert.Contains("no-store", cacheControl);
+        Assert.Contains("no-cache", cacheControl);
+        Assert.Contains("must-revalidate", cacheControl);
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_InjectsPragma_ForApiEndpoints()
+    {
+        // Act - API endpoint
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - Exercises Pragma injection for API
+        Assert.True(response.Headers.Contains("Pragma"));
+        var pragma = response.Headers.GetValues("Pragma").First();
+        Assert.Equal("no-cache", pragma);
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_InjectsExpires_ForApiEndpoints()
+    {
+        // Act - API endpoint
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - Exercises Expires injection for API
+        Assert.True(response.Headers.Contains("Expires"));
+        var expires = response.Headers.GetValues("Expires").First();
+        Assert.Equal("0", expires);
+    }
+
+    #endregion
+
+    #region Server Information Removal
+
+    [Fact]
+    public async Task SecurityHeaders_RemovesServerHeader_Always()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - Exercises server header removal path
+        Assert.False(response.Headers.Contains("Server"));
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_RemovesXPoweredByHeader_Always()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - Exercises X-Powered-By removal path
+        Assert.False(response.Headers.Contains("X-Powered-By"));
+    }
+
+    #endregion
+
+    #region Path-Specific Tests
+
+    [Fact]
+    public async Task SecurityHeaders_AppliesCorrectPolicy_ForNonApiEndpoints()
+    {
+        // Act - Non-API endpoint
+        var response = await Client.GetAsync("/health");
+
+        // Assert - Non-API endpoints use stricter CORP
+        if (response.Headers.Contains("Cross-Origin-Resource-Policy"))
+        {
+            var value = response.Headers.GetValues("Cross-Origin-Resource-Policy").First();
+            // May be 'same-site' or 'cross-origin' depending on path
+            Assert.True(value == "same-site" || value == "cross-origin");
+        }
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_AppliesHeaders_ToAuthEndpoints()
+    {
+        // Act - Auth endpoint
+        var response = await Client.PostAsJsonAsync("/api/auth/login", new
+        {
+            Email = "test@test.com",
+            Password = "Password123!"
+        });
+
+        // Assert - All security headers present on auth endpoints
+        Assert.True(response.Headers.Contains("X-Content-Type-Options"));
+        Assert.True(response.Headers.Contains("X-Frame-Options"));
+        Assert.True(response.Headers.Contains("Content-Security-Policy"));
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_AppliesHeaders_ToContentEndpoints()
+    {
+        // Act - Content endpoint
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - All security headers present on content endpoints
+        Assert.True(response.Headers.Contains("X-Content-Type-Options"));
+        Assert.True(response.Headers.Contains("X-Frame-Options"));
+        Assert.True(response.Headers.Contains("Content-Security-Policy"));
+        Assert.True(response.Headers.Contains("Cross-Origin-Resource-Policy"));
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_AppliesHeaders_ToSearchEndpoints()
+    {
+        // Act - Search endpoint
+        var response = await Client.GetAsync("/api/search?q=test");
+
+        // Assert - All security headers present on search endpoints
+        Assert.True(response.Headers.Contains("X-Content-Type-Options"));
+        Assert.True(response.Headers.Contains("X-Frame-Options"));
+        Assert.True(response.Headers.Contains("Content-Security-Policy"));
+    }
+
+    #endregion
+
+    #region HTTP Method Tests
+
+    [Theory]
+    [InlineData("GET", "/api/content")]
+    [InlineData("POST", "/api/auth/login")]
+    [InlineData("PUT", "/api/user/profile")]
+    [InlineData("DELETE", "/api/watchlist/123")]
+    public async Task SecurityHeaders_AppliesHeaders_ToAllHttpMethods(string method, string path)
+    {
+        // Arrange
+        var request = new HttpRequestMessage(new HttpMethod(method), path);
+
+        if (method == "POST")
+        {
+            request.Content = JsonContent.Create(new { Email = "test@test.com", Password = "Pass123!" });
+        }
+        else if (method == "PUT")
+        {
+            request.Content = JsonContent.Create(new { DisplayName = "Test User" });
+        }
+
+        // Act
+        var response = await Client.SendAsync(request);
+
+        // Assert - Exercises header injection for all methods
+        Assert.True(response.Headers.Contains("X-Content-Type-Options"));
+        Assert.True(response.Headers.Contains("X-Frame-Options"));
+    }
+
+    #endregion
+
+    #region Status Code Tests
+
+    [Theory]
+    [InlineData(HttpStatusCode.OK, "/api/content")]
+    [InlineData(HttpStatusCode.Unauthorized, "/api/watchlist")]
+    [InlineData(HttpStatusCode.NotFound, "/api/content/non-existent")]
+    public async Task SecurityHeaders_AppliesHeaders_ToAllStatusCodes(HttpStatusCode expectedStatus, string path)
+    {
+        // Arrange
+        if (expectedStatus == HttpStatusCode.Unauthorized)
+        {
+            ClearAuthentication();
+        }
+        else
+        {
+            SetAuthenticationHeader();
+        }
+
+        // Act
+        var response = await Client.GetAsync(path);
+
+        // Assert - Exercises header injection for all response codes
+        if (response.StatusCode == expectedStatus)
+        {
+            Assert.True(response.Headers.Contains("X-Content-Type-Options"));
+            Assert.True(response.Headers.Contains("X-Frame-Options"));
+        }
+    }
+
+    #endregion
+
+    #region CSP Directive Tests
+
+    [Fact]
+    public async Task SecurityHeaders_CSP_ContainsDefaultSrc()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert
+        var csp = response.Headers.GetValues("Content-Security-Policy").First();
+        Assert.Contains("default-src 'self'", csp);
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_CSP_ContainsScriptSrc()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert
+        var csp = response.Headers.GetValues("Content-Security-Policy").First();
+        Assert.Contains("script-src", csp);
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_CSP_ContainsStyleSrc()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert
+        var csp = response.Headers.GetValues("Content-Security-Policy").First();
+        Assert.Contains("style-src", csp);
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_CSP_ContainsImgSrc()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert
+        var csp = response.Headers.GetValues("Content-Security-Policy").First();
+        Assert.Contains("img-src", csp);
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_CSP_ContainsFrameAncestors()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert
+        var csp = response.Headers.GetValues("Content-Security-Policy").First();
+        Assert.Contains("frame-ancestors 'none'", csp);
+    }
+
+    #endregion
+
+    #region Permissions Policy Tests
+
+    [Fact]
+    public async Task SecurityHeaders_PermissionsPolicy_DisablesCamera()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert
+        var policy = response.Headers.GetValues("Permissions-Policy").First();
+        Assert.Contains("camera=()", policy);
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_PermissionsPolicy_DisablesMicrophone()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert
+        var policy = response.Headers.GetValues("Permissions-Policy").First();
+        Assert.Contains("microphone=()", policy);
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_PermissionsPolicy_DisablesGeolocation()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert
+        var policy = response.Headers.GetValues("Permissions-Policy").First();
+        Assert.Contains("geolocation=()", policy);
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_PermissionsPolicy_DisablesPayment()
+    {
+        // Act
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert
+        var policy = response.Headers.GetValues("Permissions-Policy").First();
+        Assert.Contains("payment=()", policy);
+    }
+
+    #endregion
+
+    #region Edge Case Tests
+
+    [Fact]
+    public async Task SecurityHeaders_AppliesHeaders_ToEmptyResponses()
+    {
+        // Act - DELETE request with no content response
+        SetAuthenticationHeader();
+        var response = await Client.DeleteAsync("/api/watchlist/non-existent");
+
+        // Assert - Headers present even on empty responses
+        Assert.True(response.Headers.Contains("X-Content-Type-Options"));
+        Assert.True(response.Headers.Contains("X-Frame-Options"));
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_AppliesHeaders_ToLargeResponses()
+    {
+        // Act - Request that returns large response
+        SetAuthenticationHeader();
+        var response = await Client.GetAsync("/api/content");
+
+        // Assert - Headers present on large responses
+        Assert.True(response.Headers.Contains("X-Content-Type-Options"));
+        Assert.True(response.Headers.Contains("Content-Security-Policy"));
+    }
+
+    [Fact]
+    public async Task SecurityHeaders_AppliesHeaders_ToStreamingResponses()
+    {
+        // Act - Request that might stream
+        SetAuthenticationHeader();
+        var response = await Client.GetAsync("/api/search?q=action&page=1&pageSize=100");
+
+        // Assert - Headers present on streaming responses
+        Assert.True(response.Headers.Contains("X-Content-Type-Options"));
+        Assert.True(response.Headers.Contains("X-Frame-Options"));
+    }
+
+    #endregion
+}

@@ -1,0 +1,443 @@
+import { test, expect } from '@playwright/test'
+
+// US-8.5 Advanced Filtering & Sorting E2E Tests
+// Tests complete user workflows for filtering and sorting search results
+test.describe('US-8.5 Advanced Filtering & Sorting E2E Tests', () => {
+  test.beforeEach(async ({ page }) => {
+    // Mock authentication and API responses for consistent testing
+    await page.route('**/api/auth/**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        json: { user: { id: 'test-user', email: 'test@example.com', tier: 'premium' } }
+      })
+    })
+
+    await page.route('**/api/search/global', async (route) => {
+      const request = await route.request().postDataJSON()
+      
+      // Mock response based on filters
+      const mockResults = {
+        results: [
+          {
+            id: '1',
+            title: 'The Dark Knight',
+            type: 'Movie',
+            releaseYear: 2008,
+            rating: 9.0,
+            genres: ['Action', 'Crime', 'Drama'],
+            streamingServices: ['Netflix', 'Prime Video'],
+            runtime: 152,
+            description: 'Batman faces the Joker in Gotham City.',
+            posterUrl: '/posters/dark-knight.jpg',
+            popularity: 95,
+            isFree: false,
+            isExclusive: false
+          },
+          {
+            id: '2',
+            title: 'Inception',
+            type: 'Movie',
+            releaseYear: 2010,
+            rating: 8.8,
+            genres: ['Action', 'Sci-Fi', 'Thriller'],
+            streamingServices: ['HBO Max', 'Prime Video'],
+            runtime: 148,
+            description: 'Dreams within dreams heist movie.',
+            posterUrl: '/posters/inception.jpg',
+            popularity: 92,
+            isFree: false,
+            isExclusive: false
+          }
+        ],
+        totalResults: 2,
+        hasMore: false,
+        searchTime: 0.25,
+        appliedFilters: request.filters || {},
+        paywallInfo: { isBlocked: false, remainingSearches: 100 }
+      }
+      
+      await route.fulfill({
+        status: 200,
+        json: mockResults
+      })
+    })
+
+    await page.route('**/api/search/filter-options', async (route) => {
+      await route.fulfill({
+        status: 200,
+        json: {
+          genres: [
+            { value: 'action', displayName: 'Action', count: 150, isPopular: true },
+            { value: 'comedy', displayName: 'Comedy', count: 120, isPopular: true },
+            { value: 'drama', displayName: 'Drama', count: 200, isPopular: true }
+          ],
+          streamingServices: [
+            { value: 'Netflix', displayName: 'Netflix', count: 300, isPopular: true },
+            { value: 'Prime Video', displayName: 'Prime Video', count: 250, isPopular: true }
+          ],
+          contentRatings: [
+            { value: 'PG-13', displayName: 'PG-13', count: 120, isPopular: true },
+            { value: 'R', displayName: 'R', count: 100, isPopular: true }
+          ],
+          availableYearRange: { minYear: 1920, maxYear: 2024, mostCommonYear: 2020 },
+          availableRuntimeRange: { minRuntimeMinutes: 15, maxRuntimeMinutes: 300, averageRuntimeMinutes: 110 }
+        }
+      })
+    })
+
+    // Navigate to search page
+    await page.goto('/search')
+    
+    console.log('🎯 US-8.5: E2E test setup completed')
+  })
+
+  test('should expand advanced filters and show filter options', async ({ page }) => {
+    console.log('🧪 US-8.5: Testing advanced filters expansion')
+
+    // Perform a search to trigger filter loading
+    await page.fill('[data-testid="search-input"]', 'action movies')
+    await page.press('[data-testid="search-input"]', 'Enter')
+
+    // Wait for search results
+    await page.waitForSelector('[data-testid="search-results"]', { timeout: 10000 })
+
+    // Find and click advanced filters expand button
+    const filtersExpandButton = page.locator('button:has-text("Advanced Filters")')
+    await expect(filtersExpandButton).toBeVisible()
+    await filtersExpandButton.click()
+
+    // Verify filter sections are visible
+    await expect(page.locator('text=Content Type')).toBeVisible()
+    await expect(page.locator('text=Genres')).toBeVisible()
+    await expect(page.locator('text=Streaming Services')).toBeVisible()
+    await expect(page.locator('text=From Year')).toBeVisible()
+    await expect(page.locator('text=Minimum Rating')).toBeVisible()
+
+    console.log('✅ US-8.5: Advanced filters expanded successfully')
+  })
+
+  test('should apply genre filter and update results', async ({ page }) => {
+    console.log('🧪 US-8.5: Testing genre filter application')
+
+    // Search for content
+    await page.fill('[data-testid="search-input"]', 'movies')
+    await page.press('[data-testid="search-input"]', 'Enter')
+    await page.waitForSelector('[data-testid="search-results"]')
+
+    // Expand filters
+    await page.click('button:has-text("Advanced Filters")')
+    await page.waitForSelector('text=Content Type')
+
+    // Select Action genre
+    await page.click('text=Action')
+
+    // Wait for search to update
+    await page.waitForTimeout(1000)
+
+    // Verify active filter badge is shown
+    await expect(page.locator('.badge:has-text("Action")')).toBeVisible()
+
+    // Verify results are filtered (check that action movies are displayed)
+    await expect(page.locator('text=The Dark Knight')).toBeVisible()
+    await expect(page.locator('text=Inception')).toBeVisible()
+
+    console.log('✅ US-8.5: Genre filter applied successfully')
+  })
+
+  test('should apply multiple filters simultaneously', async ({ page }) => {
+    console.log('🧪 US-8.5: Testing multiple filter application')
+
+    await page.fill('[data-testid="search-input"]', 'movies')
+    await page.press('[data-testid="search-input"]', 'Enter')
+    await page.waitForSelector('[data-testid="search-results"]')
+
+    // Expand filters
+    await page.click('button:has-text("Advanced Filters")')
+
+    // Apply multiple filters
+    await page.click('text=Movie') // Content type
+    await page.click('text=Action') // Genre
+    await page.fill('[placeholder="0.0"]', '8.0') // Minimum rating
+    await page.fill('[placeholder="1920"]', '2000') // From year
+
+    // Select streaming service
+    await page.click('text=Netflix')
+
+    await page.waitForTimeout(1500)
+
+    // Verify multiple active filter badges
+    const filterBadges = page.locator('.badge')
+    await expect(filterBadges).toHaveCount.greaterThan(3)
+
+    // Check specific filters are active
+    await expect(page.locator('.badge:has-text("Action")')).toBeVisible()
+    await expect(page.locator('.badge:has-text("Rating ≥ 8")')).toBeVisible()
+    await expect(page.locator('.badge:has-text("From 2000")')).toBeVisible()
+    await expect(page.locator('.badge:has-text("Netflix")')).toBeVisible()
+
+    console.log('✅ US-8.5: Multiple filters applied successfully')
+  })
+
+  test('should sort results by different criteria', async ({ page }) => {
+    console.log('🧪 US-8.5: Testing sort functionality')
+
+    await page.fill('[data-testid="search-input"]', 'movies')
+    await page.press('[data-testid="search-input"]', 'Enter')
+    await page.waitForSelector('[data-testid="search-results"]')
+
+    // Test sort by rating
+    const sortSelect = page.locator('[data-testid="sort-select"]')
+    await sortSelect.selectOption('rating-desc')
+    await page.waitForTimeout(1000)
+
+    // Verify results are sorted by rating (highest first)
+    const firstResult = page.locator('[data-testid="search-result"]').first()
+    await expect(firstResult.locator('text=9.0')).toBeVisible() // Dark Knight has higher rating
+
+    // Test sort by year
+    await sortSelect.selectOption('year-desc')
+    await page.waitForTimeout(1000)
+
+    // Verify results are sorted by year (most recent first)
+    await expect(firstResult.locator('text=2010')).toBeVisible() // Inception is more recent
+
+    // Test alphabetical sort
+    await sortSelect.selectOption('title-asc')
+    await page.waitForTimeout(1000)
+
+    // Results should be alphabetically sorted
+    const resultTitles = await page.locator('[data-testid="result-title"]').allTextContents()
+    const sortedTitles = [...resultTitles].sort()
+    expect(resultTitles).toEqual(sortedTitles)
+
+    console.log('✅ US-8.5: Sort functionality working correctly')
+  })
+
+  test('should remove individual filters', async ({ page }) => {
+    console.log('🧪 US-8.5: Testing individual filter removal')
+
+    await page.fill('[data-testid="search-input"]', 'action')
+    await page.press('[data-testid="search-input"]', 'Enter')
+    await page.waitForSelector('[data-testid="search-results"]')
+
+    // Expand and apply filters
+    await page.click('button:has-text("Advanced Filters")')
+    await page.click('text=Action')
+    await page.fill('[placeholder="0.0"]', '8.0')
+
+    await page.waitForTimeout(1000)
+
+    // Verify filters are applied
+    await expect(page.locator('.badge:has-text("Action")')).toBeVisible()
+    await expect(page.locator('.badge:has-text("Rating ≥ 8")')).toBeVisible()
+
+    // Remove Action filter
+    await page.click('.badge:has-text("Action") button:has-text("×")')
+    await page.waitForTimeout(1000)
+
+    // Verify Action filter is removed but Rating filter remains
+    await expect(page.locator('.badge:has-text("Action")')).not.toBeVisible()
+    await expect(page.locator('.badge:has-text("Rating ≥ 8")')).toBeVisible()
+
+    console.log('✅ US-8.5: Individual filter removal working correctly')
+  })
+
+  test('should clear all filters at once', async ({ page }) => {
+    console.log('🧪 US-8.5: Testing clear all filters')
+
+    await page.fill('[data-testid="search-input"]', 'movies')
+    await page.press('[data-testid="search-input"]', 'Enter')
+    await page.waitForSelector('[data-testid="search-results"]')
+
+    // Apply multiple filters
+    await page.click('button:has-text("Advanced Filters")')
+    await page.click('text=Action')
+    await page.click('text=Netflix')
+    await page.fill('[placeholder="0.0"]', '7.0')
+
+    await page.waitForTimeout(1000)
+
+    // Verify filters are applied
+    await expect(page.locator('.badge')).toHaveCount.greaterThan(2)
+
+    // Clear all filters
+    await page.click('button:has-text("Clear all")')
+    await page.waitForTimeout(1000)
+
+    // Verify all filters are removed
+    const filterBadges = page.locator('.badge')
+    await expect(filterBadges).toHaveCount(0)
+
+    console.log('✅ US-8.5: Clear all filters working correctly')
+  })
+
+  test('should persist filter state during search session', async ({ page }) => {
+    console.log('🧪 US-8.5: Testing filter state persistence')
+
+    await page.fill('[data-testid="search-input"]', 'action')
+    await page.press('[data-testid="search-input"]', 'Enter')
+    await page.waitForSelector('[data-testid="search-results"]')
+
+    // Apply filters
+    await page.click('button:has-text("Advanced Filters")')
+    await page.click('text=Action')
+    await page.fill('[placeholder="0.0"]', '8.0')
+
+    await page.waitForTimeout(1000)
+
+    // Perform a new search
+    await page.fill('[data-testid="search-input"]', 'thriller')
+    await page.press('[data-testid="search-input"]', 'Enter')
+    await page.waitForSelector('[data-testid="search-results"]')
+
+    // Verify filters are still applied
+    await expect(page.locator('.badge:has-text("Action")')).toBeVisible()
+    await expect(page.locator('.badge:has-text("Rating ≥ 8")')).toBeVisible()
+
+    console.log('✅ US-8.5: Filter state persistence working correctly')
+  })
+
+  test('should handle filter performance requirements', async ({ page }) => {
+    console.log('🧪 US-8.5: Testing filter performance')
+
+    await page.fill('[data-testid="search-input"]', 'movies')
+    await page.press('[data-testid="search-input"]', 'Enter')
+    await page.waitForSelector('[data-testid="search-results"]')
+
+    // Apply complex filter combination and measure time
+    const startTime = Date.now()
+
+    await page.click('button:has-text("Advanced Filters")')
+    await page.click('text=Action')
+    await page.click('text=Netflix')
+    await page.click('text=Prime Video')
+    await page.fill('[placeholder="0.0"]', '7.5')
+    await page.fill('[placeholder="1920"]', '2010')
+    await page.fill('[placeholder="2024"]', '2024')
+
+    // Wait for filter application
+    await page.waitForSelector('.badge:has-text("Action")')
+    
+    const endTime = Date.now()
+    const filterTime = endTime - startTime
+
+    console.log(`🚀 US-8.5: Filter application completed in ${filterTime}ms`)
+
+    // Frontend filter UI should respond within 1 second (requirement)
+    expect(filterTime).toBeLessThan(1000)
+
+    // Verify results updated
+    await expect(page.locator('[data-testid="search-results"]')).toBeVisible()
+
+    console.log('✅ US-8.5: Filter performance meets requirements')
+  })
+
+  test('should work correctly on mobile viewport', async ({ page }) => {
+    console.log('🧪 US-8.5: Testing mobile responsive filter UI')
+
+    // Set mobile viewport
+    await page.setViewportSize({ width: 375, height: 667 })
+
+    await page.fill('[data-testid="search-input"]', 'action')
+    await page.press('[data-testid="search-input"]', 'Enter')
+    await page.waitForSelector('[data-testid="search-results"]')
+
+    // On mobile, filters should be collapsed by default
+    await page.click('button:has-text("Filters")') // Mobile shows "Filters" not "Advanced Filters"
+
+    // Should show mobile-optimized filter layout
+    await expect(page.locator('text=Content Type')).toBeVisible()
+
+    // Apply filter on mobile
+    await page.click('text=Action')
+    await page.waitForTimeout(1000)
+
+    // Verify filter badge shows on mobile
+    await expect(page.locator('.badge:has-text("Action")')).toBeVisible()
+
+    // Verify active filter count shows on mobile
+    const filterCountBadge = page.locator('.badge:has-text("1")')
+    await expect(filterCountBadge).toBeVisible()
+
+    console.log('✅ US-8.5: Mobile filter UI working correctly')
+  })
+
+  test('should handle edge cases and errors gracefully', async ({ page }) => {
+    console.log('🧪 US-8.5: Testing edge cases and error handling')
+
+    // Mock API error for filter options
+    await page.route('**/api/search/filter-options', async (route) => {
+      await route.fulfill({
+        status: 500,
+        json: { error: 'Server error' }
+      })
+    })
+
+    await page.fill('[data-testid="search-input"]', 'test')
+    await page.press('[data-testid="search-input"]', 'Enter')
+    await page.waitForSelector('[data-testid="search-results"]')
+
+    // Try to expand filters
+    await page.click('button:has-text("Advanced Filters")')
+
+    // Should handle error gracefully (show basic filters or error message)
+    await page.waitForTimeout(2000)
+
+    // Filter panel should still be usable even without server options
+    await expect(page.locator('text=Content Type')).toBeVisible()
+
+    // Test invalid filter values
+    await page.fill('[placeholder="0.0"]', '15.0') // Invalid rating > 10
+    await page.fill('[placeholder="1920"]', '3000') // Future year
+
+    // Should handle invalid inputs gracefully
+    await page.waitForTimeout(1000)
+
+    console.log('✅ US-8.5: Edge cases handled gracefully')
+  })
+
+  test('should integrate properly with search autocomplete', async ({ page }) => {
+    console.log('🧪 US-8.5: Testing filter integration with autocomplete')
+
+    await page.route('**/api/search/autocomplete', async (route) => {
+      const url = route.request().url()
+      const query = new URL(url).searchParams.get('query') || ''
+      
+      await route.fulfill({
+        status: 200,
+        json: {
+          suggestions: [
+            { value: `${query} movies`, type: 'content', count: 150 },
+            { value: `${query} shows`, type: 'content', count: 80 },
+            { value: `${query} 2024`, type: 'year', count: 45 }
+          ]
+        }
+      })
+    })
+
+    // Start typing in search box
+    await page.fill('[data-testid="search-input"]', 'action')
+    
+    // Wait for autocomplete suggestions
+    await page.waitForSelector('[data-testid="autocomplete-suggestions"]', { timeout: 5000 })
+
+    // Verify autocomplete suggestions appear
+    await expect(page.locator('text=action movies')).toBeVisible()
+    await expect(page.locator('text=action shows')).toBeVisible()
+
+    // Select suggestion and verify filters work
+    await page.click('text=action movies')
+    await page.waitForSelector('[data-testid="search-results"]')
+
+    // Apply additional filter
+    await page.click('button:has-text("Advanced Filters")')
+    await page.click('text=Netflix')
+
+    await page.waitForTimeout(1000)
+
+    // Verify both search and filter work together
+    await expect(page.locator('.badge:has-text("Netflix")')).toBeVisible()
+
+    console.log('✅ US-8.5: Autocomplete integration working correctly')
+  })
+})

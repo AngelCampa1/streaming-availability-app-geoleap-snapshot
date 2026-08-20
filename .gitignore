@@ -1,0 +1,296 @@
+# Environment variables - NEVER commit secrets!
+.env
+.env.*
+.env.local
+.env.production
+.env.*.local
+.env.development
+.env.staging
+**/.env
+**/.env.*
+mobile/credentials.json
+backend/.env
+frontend/.env.local
+mobile/.env
+
+# Dependencies
+node_modules/
+/packages/*/node_modules/
+
+e2e/test-results/
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.vercel/
+
+# Cache and logs
+*.log
+.pnpm-debug.log*
+.yarn-debug.log*
+.yarn-error.log*
+npm-debug.log*
+.npm
+.yarn-integrity
+*.tsbuildinfo
+next-env.d.ts
+
+# Test result files
+*test-results.txt
+*-test-results.txt
+test-output.txt
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.docstates
+*.userprefs
+*.pidb
+*.aps
+*.pch
+*.vspscc
+*.vssscc
+*_i.c
+*_p.c
+*.ncb
+*.suo
+*.tlb
+*.tlh
+*.bak
+*.cache
+*.ilk
+*.log
+[Bb]in
+[Dd]ebug*/
+*.lib
+*.sbr
+*.exe
+*.pdb
+*.user
+*.aps
+*.pch
+*.vspscc
+*.vssscc
+*_i.c
+*_p.c
+*.ncb
+*.suo
+*.tlb
+*.tlh
+*.bak
+*.cache
+*.ilk
+*.log
+[Bb]in
+[Dd]ebug*/
+*.lib
+*.sbr
+obj/
+[Oo]bj
+[Dd]ebug
+[Rr]elease
+_ReSharper*/
+[Tt]est[Rr]esult*
+.vs/
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Local development
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Coverage reports
+coverage/
+*.lcov
+
+# Test artifacts
+.jest-cache/
+test-results/
+frontend/.jest-cache/
+frontend/test-results/
+backend/TestResults/
+
+# Test output files (temporary)
+**/test_output*.txt
+**/test_results*.txt
+**/test_verify.txt
+**/test_baseline.txt
+**/test_run.txt
+**/*_test_output.txt
+**/lint_output.txt
+**/typecheck_output.txt
+**/full_test_results.txt
+**/*_test_final.txt
+**/mobile_test_final.txt
+**/test_all_results.txt
+**/test_current_run.txt
+**/test_final_output.txt
+**/test_full_run.txt
+**/test_phase*.txt
+**/test_dashboard*.txt
+**/rec_test_output.txt
+**/bugfinding_test_output.txt
+
+# Malformed path files (Windows artifacts)
+C*Users*
+
+# Temporary debug/development files
+cookies.txt
+**/cookies.txt
+search_response.json
+**/search_response.json
+**/search_test.json
+
+# Temporary SQL scripts (development only)
+backend/assign_admin_role.sql
+backend/seed_vpn.sql
+
+# ESLint cache
+.eslintcache
+
+# Yarn v2
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# Claude Flow generated files
+.claude/settings.local.json
+.mcp.json
+claude-flow.config.json
+.swarm/
+.hive-mind/
+memory/claude-flow-data.json
+memory/sessions/*
+!memory/sessions/README.md
+memory/agents/*
+!memory/agents/README.md
+coordination/memory_bank/*
+coordination/subtasks/*
+coordination/orchestration/*
+*.db
+*.db-journal
+*.db-wal
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+claude-flow
+claude-flow.bat
+claude-flow.ps1
+hive-mind-prompt-*.txt
+
+test-e2e-results/nul
+nul
+
+# MaxMind GeoLite2 database files (large binary files, download separately)
+*.mmdb
+
+# Worktrees
+.worktrees/
+
+# ---------------------------------------------------------------
+# Portfolio snapshot additions
+# ---------------------------------------------------------------
+
+# Browser automation artifacts (may capture signed-in account state)
+.playwright-mcp/
+.playwright-cli/
+playwright-report/
+test-results/
+
+# Cloudflare Workers / OpenNext build output
+.wrangler/
+.wrangler-dryrun/
+.open-next/
+
+# Coverage and test-run output
+coverage/
+TestResults/
+*.dcvr
+*.trx
+*.lcov
+coverage-summary.json
+
+# Stray local test/build dumps
+**/test-output*.txt
+**/detailed-test-output.txt
+**/current_test_status.txt
+**/final_test_results.txt
+**/full_test_results.txt
+**/test-discovery.txt
+**/failure-patterns.txt
+**/build-output.txt
+**/build_output.txt
+lint-results.json
+
+# Signing material - never commit
+*.keystore
+*.jks
+*.p8
+*.p12
+*.pfx
+*.pem
+*.key
+
+# Loose screenshots at repo root (docs/screenshots/ is tracked)
+/*.png
+/*.jpg
+
+# Archives
+*.zip
+*.tar.gz
+
+# Android build state
+mobile/android/.gradle/
+mobile/android/app/src/main/assets/index.android.bundle
+
+# Playwright JSON reporter output
+**/test-results.json
+
+# The `.env.*` rules above are deliberately broad, which also catches the
+# committed templates. Those carry no values and are the only way a reader
+# knows which variables the app needs, so let them back in.
+!.env.example
+!**/.env.example
+
+# Agent tooling residue
+.claude-flow/
+**/.claude-flow/
+**/memory/memory-store.json
+
+# Playwright/e2e run output
+e2e/test-e2e-results/
+
+# Stray lint/typecheck dumps
+lint.txt
+typecheck*.txt
+audit_results.json

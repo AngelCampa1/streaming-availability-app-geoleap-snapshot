@@ -1,0 +1,626 @@
+{
+  "azureCdnOptimization": {
+    "version": "2.0",
+    "description": "Azure CDN optimization configuration for programmatic SEO system with 50K+ pages",
+    "targetMetrics": {
+      "cacheHitRatio": 95,
+      "globalLatency": {
+        "p50": 50,
+        "p95": 150,
+        "p99": 300
+      },
+      "originOffload": 90,
+      "compressionRatio": 70
+    },
+    "cdnProfile": {
+      "name": "geoleap-seo-cdn",
+      "sku": "Standard_Microsoft",
+      "location": "global",
+      "optimizationType": "GeneralWebDelivery",
+      "tags": {
+        "Environment": "production",
+        "Application": "GeoLeapSEO",
+        "CostCenter": "Infrastructure"
+      }
+    },
+    "endpoints": [
+      {
+        "name": "geoleap-seo-main",
+        "originHostName": "geoleap-seo-prod-api.azurewebsites.net",
+        "originPath": "",
+        "isHttpAllowed": false,
+        "isHttpsAllowed": true,
+        "queryStringCachingBehavior": "IgnoreQueryString",
+        "isCompressionEnabled": true,
+        "optimizationType": "GeneralWebDelivery",
+        "probePath": "/health",
+        "geoFilters": [],
+        "deliveryPolicy": {
+          "rules": [
+            {
+              "name": "StaticAssetsCaching",
+              "order": 1,
+              "conditions": [
+                {
+                  "name": "UrlFileExtension",
+                  "parameters": {
+                    "operator": "Equal",
+                    "negateCondition": false,
+                    "matchValues": [
+                      "css", "js", "png", "jpg", "jpeg", "gif", "ico", 
+                      "svg", "woff", "woff2", "ttf", "eot", "webp", "avif"
+                    ]
+                  }
+                }
+              ],
+              "actions": [
+                {
+                  "name": "CacheExpiration",
+                  "parameters": {
+                    "cacheBehavior": "Override",
+                    "cacheDuration": "365.00:00:00"
+                  }
+                },
+                {
+                  "name": "ModifyResponseHeader",
+                  "parameters": {
+                    "headerAction": "Overwrite",
+                    "headerName": "Cache-Control",
+                    "value": "public, max-age=31536000, immutable"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "ProgrammaticPagesCaching",
+              "order": 2,
+              "conditions": [
+                {
+                  "name": "UrlPath",
+                  "parameters": {
+                    "operator": "BeginsWith",
+                    "negateCondition": false,
+                    "matchValues": [
+                      "/movie/", "/tv/", "/streaming/", "/content/",
+                      "/watch-online/", "/genre/", "/year/", "/country/"
+                    ]
+                  }
+                }
+              ],
+              "actions": [
+                {
+                  "name": "CacheExpiration",
+                  "parameters": {
+                    "cacheBehavior": "Override",
+                    "cacheDuration": "06:00:00"
+                  }
+                },
+                {
+                  "name": "ModifyResponseHeader",
+                  "parameters": {
+                    "headerAction": "Overwrite",
+                    "headerName": "Cache-Control",
+                    "value": "public, max-age=21600, stale-while-revalidate=3600"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "PopularContentCaching",
+              "order": 3,
+              "conditions": [
+                {
+                  "name": "UrlPath",
+                  "parameters": {
+                    "operator": "BeginsWith",
+                    "negateCondition": false,
+                    "matchValues": [
+                      "/popular/", "/trending/", "/top-rated/", "/new-releases/"
+                    ]
+                  }
+                }
+              ],
+              "actions": [
+                {
+                  "name": "CacheExpiration",
+                  "parameters": {
+                    "cacheBehavior": "Override",
+                    "cacheDuration": "02:00:00"
+                  }
+                },
+                {
+                  "name": "ModifyResponseHeader",
+                  "parameters": {
+                    "headerAction": "Overwrite",
+                    "headerName": "Cache-Control",
+                    "value": "public, max-age=7200, stale-while-revalidate=1800"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "APIEndpointsCaching",
+              "order": 4,
+              "conditions": [
+                {
+                  "name": "UrlPath",
+                  "parameters": {
+                    "operator": "BeginsWith",
+                    "negateCondition": false,
+                    "matchValues": [
+                      "/api/content/", "/api/search/", "/api/streaming/"
+                    ]
+                  }
+                }
+              ],
+              "actions": [
+                {
+                  "name": "CacheExpiration",
+                  "parameters": {
+                    "cacheBehavior": "Override",
+                    "cacheDuration": "00:30:00"
+                  }
+                },
+                {
+                  "name": "ModifyResponseHeader",
+                  "parameters": {
+                    "headerAction": "Overwrite",
+                    "headerName": "Cache-Control",
+                    "value": "public, max-age=1800, stale-while-revalidate=300"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "SitemapCaching",
+              "order": 5,
+              "conditions": [
+                {
+                  "name": "UrlFileExtension",
+                  "parameters": {
+                    "operator": "Equal",
+                    "negateCondition": false,
+                    "matchValues": ["xml"]
+                  }
+                },
+                {
+                  "name": "UrlFileName",
+                  "parameters": {
+                    "operator": "BeginsWith",
+                    "negateCondition": false,
+                    "matchValues": ["sitemap"]
+                  }
+                }
+              ],
+              "actions": [
+                {
+                  "name": "CacheExpiration",
+                  "parameters": {
+                    "cacheBehavior": "Override",
+                    "cacheDuration": "24:00:00"
+                  }
+                },
+                {
+                  "name": "ModifyResponseHeader",
+                  "parameters": {
+                    "headerAction": "Overwrite",
+                    "headerName": "Cache-Control",
+                    "value": "public, max-age=86400"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "ImageOptimization",
+              "order": 6,
+              "conditions": [
+                {
+                  "name": "UrlFileExtension",
+                  "parameters": {
+                    "operator": "Equal",
+                    "negateCondition": false,
+                    "matchValues": ["jpg", "jpeg", "png", "webp", "avif"]
+                  }
+                }
+              ],
+              "actions": [
+                {
+                  "name": "CacheExpiration",
+                  "parameters": {
+                    "cacheBehavior": "Override",
+                    "cacheDuration": "30.00:00:00"
+                  }
+                },
+                {
+                  "name": "ModifyResponseHeader",
+                  "parameters": {
+                    "headerAction": "Append",
+                    "headerName": "Vary",
+                    "value": "Accept"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "SecurityHeaders",
+              "order": 7,
+              "conditions": [],
+              "actions": [
+                {
+                  "name": "ModifyResponseHeader",
+                  "parameters": {
+                    "headerAction": "Overwrite",
+                    "headerName": "X-Content-Type-Options",
+                    "value": "nosniff"
+                  }
+                },
+                {
+                  "name": "ModifyResponseHeader",
+                  "parameters": {
+                    "headerAction": "Overwrite",
+                    "headerName": "X-Frame-Options",
+                    "value": "DENY"
+                  }
+                },
+                {
+                  "name": "ModifyResponseHeader",
+                  "parameters": {
+                    "headerAction": "Overwrite",
+                    "headerName": "X-XSS-Protection",
+                    "value": "1; mode=block"
+                  }
+                },
+                {
+                  "name": "ModifyResponseHeader",
+                  "parameters": {
+                    "headerAction": "Overwrite",
+                    "headerName": "Referrer-Policy",
+                    "value": "strict-origin-when-cross-origin"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "CompressionOptimization",
+              "order": 8,
+              "conditions": [
+                {
+                  "name": "UrlFileExtension",
+                  "parameters": {
+                    "operator": "Equal",
+                    "negateCondition": false,
+                    "matchValues": [
+                      "html", "htm", "css", "js", "json", "xml", "txt", 
+                      "svg", "eot", "ttf", "woff", "woff2"
+                    ]
+                  }
+                }
+              ],
+              "actions": [
+                {
+                  "name": "ModifyResponseHeader",
+                  "parameters": {
+                    "headerAction": "Overwrite",
+                    "headerName": "Content-Encoding",
+                    "value": "gzip"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "contentTypesToCompress": [
+      "application/eot",
+      "application/font",
+      "application/font-sfnt",
+      "application/javascript",
+      "application/json",
+      "application/ld+json",
+      "application/opentype",
+      "application/otf",
+      "application/pkcs7-mime",
+      "application/truetype",
+      "application/ttf",
+      "application/vnd.ms-fontobject",
+      "application/xhtml+xml",
+      "application/xml",
+      "application/xml+rss",
+      "application/x-font-opentype",
+      "application/x-font-truetype",
+      "application/x-font-ttf",
+      "application/x-httpd-cgi",
+      "application/x-javascript",
+      "application/x-mpegurl",
+      "application/x-opentype",
+      "application/x-otf",
+      "application/x-perl",
+      "application/x-ttf",
+      "font/eot",
+      "font/ttf",
+      "font/otf",
+      "font/opentype",
+      "image/svg+xml",
+      "text/css",
+      "text/csv",
+      "text/html",
+      "text/javascript",
+      "text/js",
+      "text/plain",
+      "text/richtext",
+      "text/tab-separated-values",
+      "text/xml",
+      "text/x-script",
+      "text/x-component",
+      "text/x-java-source"
+    ],
+    "customDomains": [
+      {
+        "hostName": "cdn.geoleap.com",
+        "httpsType": "ServerNameIndication",
+        "certificateSource": "Cdn",
+        "minimumTlsVersion": "1.2"
+      }
+    ],
+    "originGroups": [
+      {
+        "name": "primary-origin-group",
+        "healthProbeSettings": {
+          "probePath": "/health",
+          "probeRequestType": "HEAD",
+          "probeProtocol": "Https",
+          "probeIntervalInSeconds": 120
+        },
+        "origins": [
+          {
+            "name": "primary-origin",
+            "hostName": "geoleap-seo-prod-api.azurewebsites.net",
+            "httpPort": 80,
+            "httpsPort": 443,
+            "priority": 1,
+            "weight": 1000,
+            "enabled": true
+          },
+          {
+            "name": "backup-origin",
+            "hostName": "geoleap-seo-prod-api-backup.azurewebsites.net",
+            "httpPort": 80,
+            "httpsPort": 443,
+            "priority": 2,
+            "weight": 100,
+            "enabled": true
+          }
+        ],
+        "responseBasedOriginErrorDetectionSettings": {
+          "responseBasedDetectedErrorTypes": "TcpErrorsOnly",
+          "responseBasedFailoverThresholdPercentage": 10
+        }
+      }
+    ],
+    "purgeConfiguration": {
+      "automaticPurging": {
+        "enabled": true,
+        "triggers": [
+          {
+            "name": "ContentUpdate",
+            "description": "Purge when content is updated",
+            "webhookUrl": "/api/cdn/purge",
+            "purgePatterns": [
+              "/movie/{contentId}",
+              "/movie/{contentId}/*",
+              "/tv/{contentId}",
+              "/tv/{contentId}/*",
+              "/streaming/*/movie/{contentId}",
+              "/streaming/*/tv/{contentId}",
+              "/api/content/{contentId}",
+              "/sitemap*.xml"
+            ]
+          },
+          {
+            "name": "StreamingUpdate",
+            "description": "Purge when streaming availability changes",
+            "webhookUrl": "/api/cdn/purge/streaming",
+            "purgePatterns": [
+              "/streaming/*",
+              "/movie/*/streaming/*",
+              "/tv/*/streaming/*",
+              "/api/streaming/*"
+            ]
+          }
+        ]
+      },
+      "manualPurging": {
+        "batchSize": 50,
+        "maxRequestsPerMinute": 100,
+        "retryPolicy": {
+          "maxRetries": 3,
+          "backoffMultiplier": 2,
+          "initialDelay": 1000
+        }
+      }
+    },
+    "monitoring": {
+      "enabled": true,
+      "metrics": [
+        {
+          "name": "CacheHitRatio",
+          "threshold": {
+            "warning": 90,
+            "critical": 85
+          }
+        },
+        {
+          "name": "OriginLatency",
+          "threshold": {
+            "warning": 1000,
+            "critical": 2000
+          }
+        },
+        {
+          "name": "EdgeLatency",
+          "threshold": {
+            "warning": 100,
+            "critical": 200
+          }
+        },
+        {
+          "name": "ErrorRate",
+          "threshold": {
+            "warning": 1,
+            "critical": 5
+          }
+        },
+        {
+          "name": "ThroughputMbps",
+          "threshold": {
+            "warning": 100,
+            "critical": 50
+          }
+        }
+      ],
+      "alerts": [
+        {
+          "name": "Low Cache Hit Ratio",
+          "condition": "cache_hit_ratio < 85 for 5 minutes",
+          "severity": "critical",
+          "actions": ["email", "slack", "webhook"]
+        },
+        {
+          "name": "High Origin Latency",
+          "condition": "origin_latency_p95 > 2000 for 3 minutes",
+          "severity": "warning",
+          "actions": ["email", "slack"]
+        },
+        {
+          "name": "CDN Error Rate High",
+          "condition": "error_rate > 5 for 3 minutes",
+          "severity": "critical",
+          "actions": ["email", "slack", "webhook"]
+        }
+      ]
+    },
+    "performanceOptimization": {
+      "prefetching": {
+        "enabled": true,
+        "patterns": [
+          {
+            "path": "/movie/*",
+            "prefetchResources": [
+              "images",
+              "stylesheets",
+              "critical-js"
+            ]
+          },
+          {
+            "path": "/tv/*",
+            "prefetchResources": [
+              "images",
+              "stylesheets",
+              "critical-js"
+            ]
+          }
+        ]
+      },
+      "http2Push": {
+        "enabled": true,
+        "resources": [
+          {
+            "type": "style",
+            "path": "/static/css/critical.css",
+            "priority": "high"
+          },
+          {
+            "type": "script",
+            "path": "/static/js/critical.js",
+            "priority": "high"
+          }
+        ]
+      },
+      "earlyHints": {
+        "enabled": true,
+        "resources": [
+          {
+            "rel": "preload",
+            "href": "/static/fonts/main.woff2",
+            "as": "font",
+            "type": "font/woff2",
+            "crossorigin": true
+          },
+          {
+            "rel": "preconnect",
+            "href": "https://api.themoviedb.org"
+          }
+        ]
+      }
+    },
+    "geographicOptimization": {
+      "edgeLocations": {
+        "priorityRegions": [
+          "North America",
+          "Europe", 
+          "Asia Pacific",
+          "Australia"
+        ],
+        "customRoutingRules": [
+          {
+            "region": "Europe",
+            "originPriority": ["westeurope", "northeurope"],
+            "cacheTtlMultiplier": 1.2
+          },
+          {
+            "region": "Asia Pacific",
+            "originPriority": ["southeastasia", "eastasia"],
+            "cacheTtlMultiplier": 1.1
+          }
+        ]
+      }
+    },
+    "costOptimization": {
+      "tieredPricing": {
+        "enabled": true,
+        "strategy": "BandwidthOptimized"
+      },
+      "compressionFirst": {
+        "enabled": true,
+        "compressionLevel": "optimal",
+        "estimatedSavings": "60-70%"
+      },
+      "smartCaching": {
+        "enabled": true,
+        "adaptiveTtl": true,
+        "popularityBasedCaching": true
+      }
+    },
+    "seoOptimization": {
+      "structuredData": {
+        "autoInject": true,
+        "types": ["Movie", "TVSeries", "Organization", "BreadcrumbList"]
+      },
+      "canonicalUrls": {
+        "enforceHttps": true,
+        "removeTrailingSlash": true,
+        "lowercaseUrls": true
+      },
+      "robotsOptimization": {
+        "enabled": true,
+        "customRobotsTxt": true,
+        "sitemapIntegration": true
+      }
+    },
+    "deploymentConfiguration": {
+      "bicepTemplate": "azure-cdn-deployment.bicep",
+      "parameters": {
+        "environment": "production",
+        "resourcePrefix": "geoleap-seo",
+        "enableMonitoring": true,
+        "enableCustomDomain": true
+      },
+      "dependencies": [
+        "Microsoft.Cdn/profiles",
+        "Microsoft.Cdn/profiles/endpoints",
+        "Microsoft.Insights/components"
+      ]
+    }
+  }
+}

@@ -1,0 +1,612 @@
+/**
+ * Comprehensive Social Components Unit Tests
+ * Tests for all social media integration components
+ */
+
+import React from 'react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { jest } from '@jest/globals';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+// Import components to test
+import { SocialAuthProvider } from '../../../contexts/SocialAuthContext';
+import { SocialLoginButton, SocialLoginButtons } from '../SocialLoginButtons';
+import { SocialConnections } from '../SocialConnections';
+import { SocialPrivacySettings } from '../SocialPrivacySettings';
+import { SocialRecommendations } from '../SocialRecommendations';
+import { SocialActivityFeed } from '../SocialActivityFeed';
+import { SocialShare } from '../SocialShare';
+import { SocialPlatform, SocialShareContent } from '../../../types/social';
+
+// Mock fetch globally
+global.fetch = jest.fn();
+
+// Create test query client
+const createTestQueryClient = () => new QueryClient({
+  defaultOptions: {
+    queries: { retry: false, cacheTime: 0 },
+    mutations: { retry: false }
+  }
+});
+
+// Test wrapper component
+const TestWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const queryClient = createTestQueryClient();
+  
+  return (
+    <QueryClientProvider client={queryClient}>
+      <SocialAuthProvider>
+        {children}
+      </SocialAuthProvider>
+    </QueryClientProvider>
+  );
+};
+
+// Mock test data
+const mockSocialShareContent: SocialShareContent = {
+  id: 'movie_123',
+  title: 'Test Movie',
+  description: 'A great test movie',
+  url: 'https://example.com/movie/123',
+  type: 'movie',
+  imageUrl: 'https://example.com/poster.jpg',
+  hashtags: ['movie', 'entertainment']
+};
+
+describe('Social Components', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    
+    // Mock successful fetch responses
+    (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      if (url.includes('/me')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            id: 'user_123',
+            displayName: 'Test User',
+            email: 'test@example.com'
+          })
+        });
+      }
+      
+      if (url.includes('/connections')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([])
+        });
+      }
+      
+      if (url.includes('/privacy')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            allowSocialDataCollection: true,
+            allowFriendDiscovery: true,
+            allowSocialRecommendations: true,
+            allowActivityTracking: true
+          })
+        });
+      }
+      
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({})
+      });
+    });
+  });
+
+  describe('SocialLoginButton', () => {
+    it('should render login button for each platform', () => {
+      render(
+        <TestWrapper>
+          <SocialLoginButton platform={SocialPlatform.Facebook} />
+        </TestWrapper>
+      );
+
+      expect(screen.getByRole('button', { name: /login with facebook/i })).toBeInTheDocument();
+      expect(screen.getByText(/continue with facebook/i)).toBeInTheDocument();
+    });
+
+    it('should show loading state when connecting', () => {
+      render(
+        <TestWrapper>
+          <SocialLoginButton 
+            platform={SocialPlatform.Twitter} 
+            loading={true}
+          />
+        </TestWrapper>
+      );
+
+      expect(screen.getByText(/connecting.../i)).toBeInTheDocument();
+      expect(screen.getByRole('button')).toBeDisabled();
+    });
+
+    it('should handle click events', async () => {
+      const user = userEvent.setup();
+      const onSuccess = jest.fn();
+
+      render(
+        <TestWrapper>
+          <SocialLoginButton 
+            platform={SocialPlatform.Instagram}
+            onSuccess={onSuccess}
+          />
+        </TestWrapper>
+      );
+
+      const button = screen.getByRole('button', { name: /login with instagram/i });
+      await user.click(button);
+
+      // Button should be in loading state
+      expect(button).toBeDisabled();
+    });
+
+    it('should support different sizes and variants', () => {
+      const { rerender } = render(
+        <TestWrapper>
+          <SocialLoginButton 
+            platform={SocialPlatform.LinkedIn}
+            size="small"
+            variant="outline"
+          />
+        </TestWrapper>
+      );
+
+      let button = screen.getByRole('button');
+      expect(button).toHaveClass('px-3', 'py-2', 'text-sm'); // Small size
+      expect(button).toHaveClass('border-gray-300', 'bg-white'); // Outline variant
+
+      rerender(
+        <TestWrapper>
+          <SocialLoginButton 
+            platform={SocialPlatform.LinkedIn}
+            size="large"
+            variant="filled"
+          />
+        </TestWrapper>
+      );
+
+      button = screen.getByRole('button');
+      expect(button).toHaveClass('px-6', 'py-3', 'text-lg'); // Large size
+    });
+  });
+
+  describe('SocialLoginButtons', () => {
+    it('should render multiple platform buttons', () => {
+      render(
+        <TestWrapper>
+          <SocialLoginButtons 
+            platforms={[SocialPlatform.Facebook, SocialPlatform.Twitter]}
+          />
+        </TestWrapper>
+      );
+
+      expect(screen.getByRole('button', { name: /login with facebook/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /login with twitter/i })).toBeInTheDocument();
+    });
+
+    it('should support different layouts', () => {
+      const { container, rerender } = render(
+        <TestWrapper>
+          <SocialLoginButtons 
+            platforms={[SocialPlatform.Facebook, SocialPlatform.Twitter]}
+            layout="horizontal"
+          />
+        </TestWrapper>
+      );
+
+      expect(container.querySelector('.flex')).toBeInTheDocument();
+
+      rerender(
+        <TestWrapper>
+          <SocialLoginButtons 
+            platforms={[SocialPlatform.Facebook, SocialPlatform.Twitter]}
+            layout="grid"
+          />
+        </TestWrapper>
+      );
+
+      expect(container.querySelector('.grid')).toBeInTheDocument();
+    });
+  });
+
+  describe('SocialConnections', () => {
+    it('should display connection management interface', async () => {
+      render(
+        <TestWrapper>
+          <SocialConnections userId="user_123" />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/social connections/i)).toBeInTheDocument();
+      });
+
+      // Should show platform cards
+      expect(screen.getByText(/facebook/i)).toBeInTheDocument();
+      expect(screen.getByText(/twitter/i)).toBeInTheDocument();
+    });
+
+    it('should show connection status for each platform', async () => {
+      render(
+        <TestWrapper>
+          <SocialConnections userId="user_123" />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/not connected/i)).toHaveLength(8); // All platforms
+      });
+    });
+
+    it('should handle connection actions', async () => {
+      const user = userEvent.setup();
+      const onConnectionUpdate = jest.fn();
+
+      render(
+        <TestWrapper>
+          <SocialConnections 
+            userId="user_123"
+            onConnectionUpdate={onConnectionUpdate}
+          />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/social connections/i)).toBeInTheDocument();
+      });
+
+      // Click a connect button
+      const connectButtons = screen.getAllByRole('button', { name: /continue with/i });
+      await user.click(connectButtons[0]);
+
+      // Should trigger connection update
+      expect(onConnectionUpdate).toHaveBeenCalled();
+    });
+  });
+
+  describe('SocialPrivacySettings', () => {
+    it('should render privacy controls', async () => {
+      render(
+        <TestWrapper>
+          <SocialPrivacySettings />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/privacy settings/i)).toBeInTheDocument();
+      });
+
+      expect(screen.getByText(/social sharing/i)).toBeInTheDocument();
+      expect(screen.getByText(/friend discovery/i)).toBeInTheDocument();
+      expect(screen.getByText(/social recommendations/i)).toBeInTheDocument();
+      expect(screen.getByText(/activity tracking/i)).toBeInTheDocument();
+    });
+
+    it('should handle privacy toggle changes', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <TestWrapper>
+          <SocialPrivacySettings />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/privacy settings/i)).toBeInTheDocument();
+      });
+
+      // Find and toggle a privacy setting
+      const toggles = screen.getAllByRole('checkbox');
+      expect(toggles.length).toBeGreaterThan(0);
+
+      await user.click(toggles[0]);
+      
+      // Should show save button becomes enabled
+      const saveButton = screen.getByRole('button', { name: /save settings/i });
+      expect(saveButton).not.toBeDisabled();
+    });
+
+    it('should show GDPR compliance information', async () => {
+      render(
+        <TestWrapper>
+          <SocialPrivacySettings />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/your rights.*gdpr/i)).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /export my data/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /delete my data/i })).toBeInTheDocument();
+    });
+  });
+
+  describe('SocialRecommendations', () => {
+    it('should display recommendations when available', async () => {
+      render(
+        <TestWrapper>
+          <SocialRecommendations userId="user_123" />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/recommended for you/i)).toBeInTheDocument();
+      });
+
+      // Should eventually show mock recommendations
+      await waitFor(() => {
+        expect(screen.getByText(/the dark knight/i)).toBeInTheDocument();
+        expect(screen.getByText(/breaking bad/i)).toBeInTheDocument();
+      }, { timeout: 3000 });
+    });
+
+    it('should handle empty recommendations state', async () => {
+      // Mock empty recommendations
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      render(
+        <TestWrapper>
+          <SocialRecommendations userId="user_123" />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/recommended for you/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should support filtering and sorting', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <TestWrapper>
+          <SocialRecommendations userId="user_123" showFilters={true} />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/content type/i)).toBeInTheDocument();
+      });
+
+      // Change content type filter
+      const contentTypeSelect = screen.getByDisplayValue(/all types/i);
+      await user.selectOptions(contentTypeSelect, 'movie');
+
+      expect(contentTypeSelect).toHaveValue('movie');
+    });
+  });
+
+  describe('SocialActivityFeed', () => {
+    it('should display activity feed', async () => {
+      render(
+        <TestWrapper>
+          <SocialActivityFeed userId="user_123" />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/activity feed/i)).toBeInTheDocument();
+      });
+
+      // Should show mock activities
+      await waitFor(() => {
+        expect(screen.getByText(/john doe/i)).toBeInTheDocument();
+        expect(screen.getByText(/the dark knight/i)).toBeInTheDocument();
+      }, { timeout: 3000 });
+    });
+
+    it('should handle refresh', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <TestWrapper>
+          <SocialActivityFeed userId="user_123" />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/activity feed/i)).toBeInTheDocument();
+      });
+
+      const refreshButton = screen.getByRole('button', { name: /refresh activity feed/i });
+      await user.click(refreshButton);
+
+      // Should show loading state
+      expect(refreshButton).toBeDisabled();
+    });
+
+    it('should support filtering', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <TestWrapper>
+          <SocialActivityFeed userId="user_123" showFilters={true} />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/time range/i)).toBeInTheDocument();
+      });
+
+      // Change time range filter
+      const timeRangeSelect = screen.getByDisplayValue(/last 7 days/i);
+      await user.selectOptions(timeRangeSelect, '24h');
+
+      expect(timeRangeSelect).toHaveValue('24h');
+    });
+  });
+
+  describe('SocialShare', () => {
+    it('should render share modal when open', () => {
+      render(
+        <TestWrapper>
+          <SocialShare 
+            content={mockSocialShareContent}
+            isOpen={true}
+            onClose={jest.fn()}
+          />
+        </TestWrapper>
+      );
+
+      expect(screen.getByText(/share content/i)).toBeInTheDocument();
+      expect(screen.getByText(/test movie/i)).toBeInTheDocument();
+    });
+
+    it('should not render when closed', () => {
+      render(
+        <TestWrapper>
+          <SocialShare 
+            content={mockSocialShareContent}
+            isOpen={false}
+            onClose={jest.fn()}
+          />
+        </TestWrapper>
+      );
+
+      expect(screen.queryByText(/share content/i)).not.toBeInTheDocument();
+    });
+
+    it('should handle platform selection', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <TestWrapper>
+          <SocialShare 
+            content={mockSocialShareContent}
+            isOpen={true}
+            onClose={jest.fn()}
+          />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/select platforms/i)).toBeInTheDocument();
+      });
+
+      // Platform cards should be present but may be disabled if not connected
+      expect(screen.getByText(/facebook/i)).toBeInTheDocument();
+      expect(screen.getByText(/twitter/i)).toBeInTheDocument();
+    });
+
+    it('should handle close action', async () => {
+      const user = userEvent.setup();
+      const onClose = jest.fn();
+
+      render(
+        <TestWrapper>
+          <SocialShare 
+            content={mockSocialShareContent}
+            isOpen={true}
+            onClose={onClose}
+          />
+        </TestWrapper>
+      );
+
+      const closeButton = screen.getByRole('button', { name: /close share modal/i });
+      await user.click(closeButton);
+
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it('should show content preview', async () => {
+      render(
+        <TestWrapper>
+          <SocialShare 
+            content={mockSocialShareContent}
+            isOpen={true}
+            onClose={jest.fn()}
+          />
+        </TestWrapper>
+      );
+
+      expect(screen.getByText('Test Movie')).toBeInTheDocument();
+      expect(screen.getByText('A great test movie')).toBeInTheDocument();
+      expect(screen.getByText(/movie • https:\/\/example\.com/)).toBeInTheDocument();
+    });
+  });
+
+  describe('Accessibility', () => {
+    it('should provide proper ARIA labels', async () => {
+      render(
+        <TestWrapper>
+          <SocialLoginButton platform={SocialPlatform.Facebook} />
+        </TestWrapper>
+      );
+
+      const button = screen.getByRole('button', { name: /login with facebook/i });
+      expect(button).toHaveAttribute('aria-label');
+      expect(button).toHaveAttribute('aria-describedby');
+    });
+
+    it('should support keyboard navigation', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <TestWrapper>
+          <SocialLoginButtons 
+            platforms={[SocialPlatform.Facebook, SocialPlatform.Twitter]}
+          />
+        </TestWrapper>
+      );
+
+      // Tab through buttons
+      await user.tab();
+      expect(screen.getByRole('button', { name: /login with facebook/i })).toHaveFocus();
+
+      await user.tab();
+      expect(screen.getByRole('button', { name: /login with twitter/i })).toHaveFocus();
+    });
+
+    it('should handle focus management in modals', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <TestWrapper>
+          <SocialShare 
+            content={mockSocialShareContent}
+            isOpen={true}
+            onClose={jest.fn()}
+          />
+        </TestWrapper>
+      );
+
+      // Close button should be focusable
+      const closeButton = screen.getByRole('button', { name: /close share modal/i });
+      closeButton.focus();
+      expect(closeButton).toHaveFocus();
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should handle API errors gracefully', async () => {
+      // Mock API failure
+      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
+
+      render(
+        <TestWrapper>
+          <SocialConnections userId="user_123" />
+        </TestWrapper>
+      );
+
+      // Should not crash and eventually show error handling
+      await waitFor(() => {
+        expect(screen.getByText(/social connections/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should show loading states during async operations', async () => {
+      render(
+        <TestWrapper>
+          <SocialRecommendations userId="user_123" />
+        </TestWrapper>
+      );
+
+      // Should show loading state initially
+      expect(screen.getByTestId('loading') || screen.getByText(/loading/i) || document.querySelector('.animate-pulse')).toBeTruthy();
+    });
+  });
+});

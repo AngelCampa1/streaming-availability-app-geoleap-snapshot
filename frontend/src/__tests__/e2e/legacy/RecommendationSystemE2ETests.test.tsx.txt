@@ -1,0 +1,748 @@
+/**
+ * End-to-End Recommendation System Validation Tests
+ * Tests complete recommendation workflows and ML algorithm integration
+ */
+
+import { test, expect, Page, BrowserContext } from '@playwright/test';
+
+// Test configuration
+const BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:3000';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+// Test user profiles for recommendation testing
+const TEST_USERS = {
+  user1: {
+    id: 'user_123',
+    preferences: ['travel', 'photography', 'food'],
+    age: 28,
+    location: 'New York, NY'
+  },
+  user2: {
+    id: 'user_456',
+    preferences: ['adventure', 'hiking', 'nature'],
+    age: 32,
+    location: 'San Francisco, CA'
+  },
+  user3: {
+    id: 'user_789',
+    preferences: ['culture', 'museums', 'art'],
+    age: 35,
+    location: 'Los Angeles, CA'
+  }
+};
+
+// Mock recommendation data
+const MOCK_RECOMMENDATIONS = {
+  content: [
+    {
+      id: 'content_1',
+      title: 'Best Photography Spots in NYC',
+      type: 'article',
+      score: 0.95,
+      reasons: ['photography interest', 'NYC location match'],
+      imageUrl: '/images/nyc-photography.jpg',
+      author: 'Travel Expert',
+      publishedDate: '2024-01-15'
+    },
+    {
+      id: 'content_2',
+      title: 'Hidden Food Gems Downtown',
+      type: 'guide',
+      score: 0.88,
+      reasons: ['food interest', 'location proximity'],
+      imageUrl: '/images/food-gems.jpg',
+      author: 'Local Foodie',
+      publishedDate: '2024-01-12'
+    },
+    {
+      id: 'content_3',
+      title: 'Photography Workshop This Weekend',
+      type: 'event',
+      score: 0.82,
+      reasons: ['photography interest', 'upcoming event'],
+      imageUrl: '/images/photo-workshop.jpg',
+      eventDate: '2024-01-20',
+      location: 'Manhattan'
+    }
+  ],
+  users: [
+    {
+      id: 'user_rec_1',
+      name: 'Alice Johnson',
+      commonInterests: ['photography', 'travel'],
+      mutualFriends: 3,
+      score: 0.91,
+      profileImageUrl: '/images/alice.jpg',
+      location: 'Brooklyn, NY'
+    },
+    {
+      id: 'user_rec_2',
+      name: 'Bob Smith',
+      commonInterests: ['food', 'photography'],
+      mutualFriends: 1,
+      score: 0.78,
+      profileImageUrl: '/images/bob.jpg',
+      location: 'Queens, NY'
+    }
+  ],
+  locations: [
+    {
+      id: 'location_1',
+      name: 'Central Park Photography Spot',
+      type: 'park',
+      score: 0.93,
+      reasons: ['photography hotspot', 'high ratings'],
+      coordinates: { lat: 40.7829, lng: -73.9654 },
+      rating: 4.8,
+      reviewCount: 1247
+    },
+    {
+      id: 'location_2',
+      name: 'Brooklyn Bridge Viewpoint',
+      type: 'landmark',
+      score: 0.87,
+      reasons: ['iconic photography location', 'trending'],
+      coordinates: { lat: 40.7061, lng: -73.9969 },
+      rating: 4.6,
+      reviewCount: 892
+    }
+  ]
+};
+
+test.describe('Recommendation System E2E Validation', () => {
+  let page: Page;
+  let context: BrowserContext;
+
+  test.beforeEach(async ({ browser }) => {
+    context = await browser.newContext({
+      viewport: { width: 1280, height: 720 },
+      geolocation: { latitude: 40.7128, longitude: -74.0060 } // NYC coordinates
+    });
+    
+    page = await context.newPage();
+    
+    // Mock recommendation API endpoints
+    await page.route(`${API_URL}/api/recommendations/**`, async route => {
+      const url = route.request().url();
+      const method = route.request().method();
+      
+      if (method === 'GET' && url.includes('/content')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            recommendations: MOCK_RECOMMENDATIONS.content,
+            algorithm: 'hybrid',
+            totalCount: 25,
+            page: 1,
+            hasMore: true,
+            refreshedAt: new Date().toISOString()
+          })
+        });
+      } else if (method === 'GET' && url.includes('/users')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            recommendations: MOCK_RECOMMENDATIONS.users,
+            algorithm: 'collaborative_filtering',
+            totalCount: 12,
+            page: 1,
+            hasMore: true
+          })
+        });
+      } else if (method === 'GET' && url.includes('/locations')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            recommendations: MOCK_RECOMMENDATIONS.locations,
+            algorithm: 'content_based',
+            totalCount: 18,
+            page: 1,
+            hasMore: true
+          })
+        });
+      } else if (method === 'POST' && url.includes('/feedback')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            feedbackId: 'feedback_123',
+            modelUpdated: true
+          })
+        });
+      } else if (method === 'GET' && url.includes('/trending')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            trending: [
+              { id: 'trend_1', title: 'Winter Photography Tips', score: 0.95, trendingFor: '2h' },
+              { id: 'trend_2', title: 'New Food Trucks in NYC', score: 0.89, trendingFor: '4h' }
+            ],
+            timeframe: '24h'
+          })
+        });
+      } else if (method === 'GET' && url.includes('/analytics')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            performance: {
+              clickThroughRate: 0.12,
+              conversionRate: 0.08,
+              userSatisfaction: 4.2,
+              algorithmAccuracy: 0.87
+            },
+            engagement: {
+              totalViews: 1547,
+              totalClicks: 186,
+              totalShares: 23,
+              averageTimeSpent: 125
+            }
+          })
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true })
+        });
+      }
+    });
+
+    // Mock user preferences API
+    await page.route(`${API_URL}/api/user/preferences`, async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(TEST_USERS.user1)
+      });
+    });
+
+    // Login user
+    await page.goto(`${BASE_URL}/login`);
+    await page.fill('[data-testid="email-input"]', 'test@example.com');
+    await page.fill('[data-testid="password-input"]', 'password123');
+    await page.click('[data-testid="login-button"]');
+    await page.waitForURL('**/dashboard');
+  });
+
+  test.afterEach(async () => {
+    await context.close();
+  });
+
+  test('Content Recommendations Display and Interaction', async () => {
+    // Navigate to recommendations page
+    await page.goto(`${BASE_URL}/recommendations`);
+    
+    // Verify recommendations section loads
+    const recommendationsSection = page.locator('[data-testid="content-recommendations-section"]');
+    await expect(recommendationsSection).toBeVisible();
+    
+    // Verify recommendation cards display
+    const recommendationCards = page.locator('[data-testid^="recommendation-card-"]');
+    const cardCount = await recommendationCards.count();
+    expect(cardCount).toBeGreaterThan(0);
+    
+    // Test first recommendation card
+    const firstCard = recommendationCards.first();
+    await expect(firstCard).toBeVisible();
+    await expect(firstCard).toContainText('Best Photography Spots in NYC');
+    
+    // Verify recommendation score display
+    const scoreElement = firstCard.locator('[data-testid="recommendation-score"]');
+    await expect(scoreElement).toBeVisible();
+    await expect(scoreElement).toContainText('95%');
+    
+    // Verify recommendation reasons
+    const reasonsElement = firstCard.locator('[data-testid="recommendation-reasons"]');
+    await expect(reasonsElement).toBeVisible();
+    await expect(reasonsElement).toContainText('photography interest');
+    
+    // Test recommendation interaction
+    await firstCard.click();
+    
+    // Verify navigation to content
+    await page.waitForURL('**/content/content_1');
+    
+    // Go back to recommendations
+    await page.goBack();
+    
+    // Test recommendation feedback
+    const feedbackButton = firstCard.locator('[data-testid="feedback-button"]');
+    await feedbackButton.click();
+    
+    // Verify feedback modal
+    const feedbackModal = page.locator('[data-testid="recommendation-feedback-modal"]');
+    await expect(feedbackModal).toBeVisible();
+    
+    // Provide positive feedback
+    const likeButton = page.locator('[data-testid="feedback-like"]');
+    await likeButton.click();
+    
+    // Add detailed feedback
+    const feedbackInput = page.locator('[data-testid="feedback-input"]');
+    await feedbackInput.fill('Great recommendation! Very relevant to my interests.');
+    
+    // Submit feedback
+    const submitFeedbackButton = page.locator('[data-testid="submit-feedback"]');
+    await submitFeedbackButton.click();
+    
+    // Verify feedback success
+    const feedbackSuccess = page.locator('[data-testid="feedback-success"]');
+    await expect(feedbackSuccess).toBeVisible();
+    await expect(feedbackSuccess).toContainText('Thank you for your feedback');
+  });
+
+  test('User Recommendations and Social Connections', async () => {
+    await page.goto(`${BASE_URL}/recommendations/users`);
+    
+    // Verify user recommendations section
+    const userRecommendationsSection = page.locator('[data-testid="user-recommendations-section"]');
+    await expect(userRecommendationsSection).toBeVisible();
+    
+    // Verify user recommendation cards
+    const userCards = page.locator('[data-testid^="user-recommendation-"]');
+    const userCardCount = await userCards.count();
+    expect(userCardCount).toBeGreaterThan(0);
+    
+    // Test first user recommendation
+    const firstUserCard = userCards.first();
+    await expect(firstUserCard).toContainText('Alice Johnson');
+    
+    // Verify common interests display
+    const commonInterests = firstUserCard.locator('[data-testid="common-interests"]');
+    await expect(commonInterests).toBeVisible();
+    await expect(commonInterests).toContainText('photography');
+    await expect(commonInterests).toContainText('travel');
+    
+    // Verify mutual friends count
+    const mutualFriends = firstUserCard.locator('[data-testid="mutual-friends"]');
+    await expect(mutualFriends).toContainText('3 mutual friends');
+    
+    // Test view profile action
+    const viewProfileButton = firstUserCard.locator('[data-testid="view-profile"]');
+    await viewProfileButton.click();
+    
+    // Verify profile modal opens
+    const profileModal = page.locator('[data-testid="user-profile-modal"]');
+    await expect(profileModal).toBeVisible();
+    await expect(profileModal).toContainText('Alice Johnson');
+    
+    // Close profile modal
+    const closeModalButton = page.locator('[data-testid="close-profile-modal"]');
+    await closeModalButton.click();
+    
+    // Test connect action
+    const connectButton = firstUserCard.locator('[data-testid="connect-user"]');
+    await connectButton.click();
+    
+    // Verify connection request modal
+    const connectionModal = page.locator('[data-testid="connection-request-modal"]');
+    await expect(connectionModal).toBeVisible();
+    
+    // Add connection message
+    const connectionMessage = page.locator('[data-testid="connection-message"]');
+    await connectionMessage.fill('Hi Alice! I noticed we both love photography. Would love to connect!');
+    
+    // Send connection request
+    const sendRequestButton = page.locator('[data-testid="send-connection-request"]');
+    await sendRequestButton.click();
+    
+    // Verify success notification
+    const connectionSuccess = page.locator('[data-testid="connection-request-sent"]');
+    await expect(connectionSuccess).toBeVisible();
+    
+    // Verify button state changes
+    await expect(connectButton).toContainText('Request Sent');
+    await expect(connectButton).toBeDisabled();
+  });
+
+  test('Location Recommendations with Maps Integration', async () => {
+    await page.goto(`${BASE_URL}/recommendations/locations`);
+    
+    // Verify location recommendations section
+    const locationSection = page.locator('[data-testid="location-recommendations-section"]');
+    await expect(locationSection).toBeVisible();
+    
+    // Verify map view toggle
+    const mapToggle = page.locator('[data-testid="map-view-toggle"]');
+    await expect(mapToggle).toBeVisible();
+    await mapToggle.click();
+    
+    // Verify map container loads
+    const mapContainer = page.locator('[data-testid="recommendations-map"]');
+    await expect(mapContainer).toBeVisible();
+    
+    // Verify location markers on map
+    const locationMarkers = page.locator('[data-testid^="location-marker-"]');
+    const markerCount = await locationMarkers.count();
+    expect(markerCount).toBeGreaterThan(0);
+    
+    // Test marker interaction
+    const firstMarker = locationMarkers.first();
+    await firstMarker.click();
+    
+    // Verify location info popup
+    const locationPopup = page.locator('[data-testid="location-info-popup"]');
+    await expect(locationPopup).toBeVisible();
+    await expect(locationPopup).toContainText('Central Park Photography Spot');
+    
+    // Switch back to list view
+    const listToggle = page.locator('[data-testid="list-view-toggle"]');
+    await listToggle.click();
+    
+    // Verify location recommendation cards
+    const locationCards = page.locator('[data-testid^="location-recommendation-"]');
+    const locationCardCount = await locationCards.count();
+    expect(locationCardCount).toBeGreaterThan(0);
+    
+    // Test first location card
+    const firstLocationCard = locationCards.first();
+    await expect(firstLocationCard).toContainText('Central Park Photography Spot');
+    
+    // Verify rating display
+    const rating = firstLocationCard.locator('[data-testid="location-rating"]');
+    await expect(rating).toContainText('4.8');
+    
+    // Verify review count
+    const reviewCount = firstLocationCard.locator('[data-testid="review-count"]');
+    await expect(reviewCount).toContainText('1,247 reviews');
+    
+    // Test get directions action
+    const directionsButton = firstLocationCard.locator('[data-testid="get-directions"]');
+    await directionsButton.click();
+    
+    // Verify directions modal
+    const directionsModal = page.locator('[data-testid="directions-modal"]');
+    await expect(directionsModal).toBeVisible();
+    
+    // Test save location action
+    const saveLocationButton = firstLocationCard.locator('[data-testid="save-location"]');
+    await saveLocationButton.click();
+    
+    // Verify save confirmation
+    const saveConfirmation = page.locator('[data-testid="location-saved"]');
+    await expect(saveConfirmation).toBeVisible();
+    await expect(saveConfirmation).toContainText('Location saved to your list');
+  });
+
+  test('Recommendation Algorithm Switching and Preferences', async () => {
+    await page.goto(`${BASE_URL}/recommendations/settings`);
+    
+    // Verify recommendation settings section
+    const settingsSection = page.locator('[data-testid="recommendation-settings-section"]');
+    await expect(settingsSection).toBeVisible();
+    
+    // Test algorithm selection
+    const algorithmSelect = page.locator('[data-testid="algorithm-select"]');
+    await expect(algorithmSelect).toBeVisible();
+    
+    // Switch to collaborative filtering
+    await algorithmSelect.selectOption('collaborative');
+    
+    // Verify algorithm description
+    const algorithmDescription = page.locator('[data-testid="algorithm-description"]');
+    await expect(algorithmDescription).toContainText('recommendations based on similar users');
+    
+    // Test content type preferences
+    const contentTypeSection = page.locator('[data-testid="content-type-preferences"]');
+    await expect(contentTypeSection).toBeVisible();
+    
+    const articlesToggle = page.locator('[data-testid="articles-preference"]');
+    const eventsToggle = page.locator('[data-testid="events-preference"]');
+    const guidesToggle = page.locator('[data-testid="guides-preference"]');
+    
+    await articlesToggle.check();
+    await eventsToggle.check();
+    await guidesToggle.uncheck();
+    
+    // Test interest weight adjustment
+    const interestWeights = page.locator('[data-testid="interest-weights-section"]');
+    await expect(interestWeights).toBeVisible();
+    
+    const photographySlider = page.locator('[data-testid="photography-weight-slider"]');
+    await photographySlider.fill('0.8');
+    
+    const travelSlider = page.locator('[data-testid="travel-weight-slider"]');
+    await travelSlider.fill('0.6');
+    
+    // Test location radius setting
+    const radiusSlider = page.locator('[data-testid="location-radius-slider"]');
+    await radiusSlider.fill('25'); // 25 miles
+    
+    // Verify radius display
+    const radiusDisplay = page.locator('[data-testid="radius-display"]');
+    await expect(radiusDisplay).toContainText('25 miles');
+    
+    // Test diversity setting
+    const diversitySlider = page.locator('[data-testid="diversity-slider"]');
+    await diversitySlider.fill('0.7');
+    
+    // Save preferences
+    const saveSettingsButton = page.locator('[data-testid="save-recommendation-settings"]');
+    await saveSettingsButton.click();
+    
+    // Verify save success
+    const saveSuccess = page.locator('[data-testid="settings-saved"]');
+    await expect(saveSuccess).toBeVisible();
+    
+    // Test immediate refresh of recommendations
+    const refreshButton = page.locator('[data-testid="refresh-recommendations"]');
+    await refreshButton.click();
+    
+    // Verify refresh notification
+    const refreshNotification = page.locator('[data-testid="recommendations-refreshed"]');
+    await expect(refreshNotification).toBeVisible();
+  });
+
+  test('Trending Content and Real-time Updates', async () => {
+    await page.goto(`${BASE_URL}/recommendations/trending`);
+    
+    // Verify trending section
+    const trendingSection = page.locator('[data-testid="trending-recommendations-section"]');
+    await expect(trendingSection).toBeVisible();
+    
+    // Verify trending timeframe selector
+    const timeframeSelect = page.locator('[data-testid="trending-timeframe-select"]');
+    await expect(timeframeSelect).toBeVisible();
+    
+    // Test different timeframes
+    await timeframeSelect.selectOption('1h');
+    await page.waitForTimeout(1000);
+    
+    await timeframeSelect.selectOption('24h');
+    await page.waitForTimeout(1000);
+    
+    // Verify trending items display
+    const trendingItems = page.locator('[data-testid^="trending-item-"]');
+    const trendingCount = await trendingItems.count();
+    expect(trendingCount).toBeGreaterThan(0);
+    
+    // Test first trending item
+    const firstTrendingItem = trendingItems.first();
+    await expect(firstTrendingItem).toContainText('Winter Photography Tips');
+    
+    // Verify trending indicator
+    const trendingIndicator = firstTrendingItem.locator('[data-testid="trending-indicator"]');
+    await expect(trendingIndicator).toBeVisible();
+    await expect(trendingIndicator).toContainText('Trending for 2h');
+    
+    // Test real-time updates simulation
+    const enableUpdatesToggle = page.locator('[data-testid="real-time-updates-toggle"]');
+    await enableUpdatesToggle.check();
+    
+    // Verify update notification appears
+    const updateNotification = page.locator('[data-testid="real-time-update-notification"]');
+    await expect(updateNotification).toBeVisible({ timeout: 10000 });
+    
+    // Test trending category filters
+    const categoryFilter = page.locator('[data-testid="trending-category-filter"]');
+    await categoryFilter.selectOption('photography');
+    
+    // Verify filtered results
+    const filteredItems = page.locator('[data-testid^="trending-item-"]');
+    const filteredCount = await filteredItems.count();
+    expect(filteredCount).toBeLessThanOrEqual(trendingCount);
+  });
+
+  test('Recommendation Performance Analytics', async () => {
+    await page.goto(`${BASE_URL}/recommendations/analytics`);
+    
+    // Verify analytics dashboard
+    const analyticsSection = page.locator('[data-testid="recommendation-analytics-section"]');
+    await expect(analyticsSection).toBeVisible();
+    
+    // Verify performance metrics
+    const performanceMetrics = page.locator('[data-testid="performance-metrics"]');
+    await expect(performanceMetrics).toBeVisible();
+    
+    // Check click-through rate
+    const ctrMetric = page.locator('[data-testid="ctr-metric"]');
+    await expect(ctrMetric).toContainText('12%');
+    
+    // Check conversion rate
+    const conversionMetric = page.locator('[data-testid="conversion-metric"]');
+    await expect(conversionMetric).toContainText('8%');
+    
+    // Check user satisfaction score
+    const satisfactionMetric = page.locator('[data-testid="satisfaction-metric"]');
+    await expect(satisfactionMetric).toContainText('4.2');
+    
+    // Check algorithm accuracy
+    const accuracyMetric = page.locator('[data-testid="accuracy-metric"]');
+    await expect(accuracyMetric).toContainText('87%');
+    
+    // Verify engagement metrics
+    const engagementMetrics = page.locator('[data-testid="engagement-metrics"]');
+    await expect(engagementMetrics).toBeVisible();
+    
+    // Check total views
+    const viewsMetric = page.locator('[data-testid="total-views"]');
+    await expect(viewsMetric).toContainText('1,547');
+    
+    // Check total clicks
+    const clicksMetric = page.locator('[data-testid="total-clicks"]');
+    await expect(clicksMetric).toContainText('186');
+    
+    // Test date range filtering
+    const dateRangeFilter = page.locator('[data-testid="analytics-date-range"]');
+    await dateRangeFilter.selectOption('last-7-days');
+    
+    // Verify metrics update
+    await page.waitForTimeout(1000);
+    await expect(performanceMetrics).toBeVisible();
+    
+    // Test export analytics
+    const exportButton = page.locator('[data-testid="export-analytics"]');
+    await exportButton.click();
+    
+    // Verify export modal
+    const exportModal = page.locator('[data-testid="export-analytics-modal"]');
+    await expect(exportModal).toBeVisible();
+    
+    const exportFormatSelect = page.locator('[data-testid="export-format-select"]');
+    await exportFormatSelect.selectOption('csv');
+    
+    const confirmExportButton = page.locator('[data-testid="confirm-export"]');
+    await confirmExportButton.click();
+    
+    const exportSuccess = page.locator('[data-testid="export-success"]');
+    await expect(exportSuccess).toBeVisible();
+  });
+
+  test('Personalized Recommendation Feed', async () => {
+    await page.goto(`${BASE_URL}/dashboard`);
+    
+    // Verify personalized feed section
+    const feedSection = page.locator('[data-testid="personalized-feed-section"]');
+    await expect(feedSection).toBeVisible();
+    
+    // Verify "For You" section
+    const forYouSection = page.locator('[data-testid="for-you-section"]');
+    await expect(forYouSection).toBeVisible();
+    
+    // Test infinite scroll loading
+    const initialItems = page.locator('[data-testid^="feed-item-"]');
+    const initialCount = await initialItems.count();
+    
+    // Scroll to bottom to trigger loading
+    await page.evaluate(() => {
+      window.scrollTo(0, document.body.scrollHeight);
+    });
+    
+    // Wait for new items to load
+    await page.waitForTimeout(2000);
+    
+    const newItems = page.locator('[data-testid^="feed-item-"]');
+    const newCount = await newItems.count();
+    expect(newCount).toBeGreaterThan(initialCount);
+    
+    // Test pull-to-refresh on mobile simulation
+    await page.setViewportSize({ width: 375, height: 667 });
+    
+    // Simulate pull gesture
+    await page.mouse.move(187, 100);
+    await page.mouse.down();
+    await page.mouse.move(187, 200);
+    await page.mouse.up();
+    
+    // Verify refresh indicator
+    const refreshIndicator = page.locator('[data-testid="pull-refresh-indicator"]');
+    await expect(refreshIndicator).toBeVisible({ timeout: 3000 });
+    
+    // Test recommendation interaction tracking
+    const firstFeedItem = newItems.first();
+    await firstFeedItem.click();
+    
+    // Verify interaction tracking (check network requests)
+    // This would normally verify analytics calls were made
+    
+    // Test "Not Interested" feedback
+    await page.goBack();
+    
+    const notInterestedButton = firstFeedItem.locator('[data-testid="not-interested"]');
+    await notInterestedButton.click();
+    
+    // Verify feedback modal
+    const feedbackModal = page.locator('[data-testid="not-interested-modal"]');
+    await expect(feedbackModal).toBeVisible();
+    
+    // Select reason
+    const reasonSelect = page.locator('[data-testid="not-interested-reason"]');
+    await reasonSelect.selectOption('not-relevant');
+    
+    const submitNotInterestedButton = page.locator('[data-testid="submit-not-interested"]');
+    await submitNotInterestedButton.click();
+    
+    // Verify item is hidden
+    await expect(firstFeedItem).not.toBeVisible();
+  });
+
+  test('Accessibility in Recommendation Interface', async () => {
+    await page.goto(`${BASE_URL}/recommendations`);
+    
+    // Test keyboard navigation
+    await page.keyboard.press('Tab');
+    let focusedElement = page.locator(':focus');
+    await expect(focusedElement).toBeVisible();
+    
+    // Navigate through recommendation cards
+    for (let i = 0; i < 3; i++) {
+      await page.keyboard.press('Tab');
+      focusedElement = page.locator(':focus');
+      await expect(focusedElement).toBeVisible();
+    }
+    
+    // Test Enter key activation
+    await page.keyboard.press('Enter');
+    
+    // Test ARIA attributes
+    const recommendationCards = page.locator('[data-testid^="recommendation-card-"]');
+    const firstCard = recommendationCards.first();
+    
+    await expect(firstCard).toHaveAttribute('role', 'article');
+    await expect(firstCard).toHaveAttribute('aria-labelledby');
+    
+    // Test screen reader content
+    const srOnlyElements = page.locator('.sr-only');
+    const srCount = await srOnlyElements.count();
+    expect(srCount).toBeGreaterThan(0);
+    
+    // Test focus management in modals
+    const feedbackButton = firstCard.locator('[data-testid="feedback-button"]');
+    await feedbackButton.click();
+    
+    const feedbackModal = page.locator('[data-testid="recommendation-feedback-modal"]');
+    await expect(feedbackModal).toBeVisible();
+    
+    // Verify focus is trapped in modal
+    await page.keyboard.press('Tab');
+    focusedElement = page.locator(':focus');
+    
+    const isInsideModal = await focusedElement.evaluate(el => {
+      const modal = document.querySelector('[data-testid="recommendation-feedback-modal"]');
+      return modal?.contains(el) ?? false;
+    });
+    expect(isInsideModal).toBe(true);
+    
+    // Test escape key closes modal
+    await page.keyboard.press('Escape');
+    await expect(feedbackModal).not.toBeVisible();
+    
+    // Test high contrast mode
+    await page.addStyleTag({
+      content: `
+        @media (prefers-contrast: high) {
+          .recommendation-card { border: 2px solid #000; }
+        }
+      `
+    });
+    
+    // Verify elements remain visible in high contrast
+    await expect(firstCard).toBeVisible();
+  });
+});

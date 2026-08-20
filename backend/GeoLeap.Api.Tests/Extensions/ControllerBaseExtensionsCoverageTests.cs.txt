@@ -1,0 +1,312 @@
+using System.Diagnostics;
+using GeoLeap.Api.Extensions;
+using GeoLeap.Api.Models;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Xunit;
+
+namespace GeoLeap.Api.Tests.Extensions;
+
+/// <summary>
+/// Comprehensive tests for ControllerBaseExtensions - Target 95%+ coverage
+/// Tests correlation ID handling and standardized error response methods
+/// </summary>
+public class ControllerBaseExtensionsCoverageTests
+{
+    private readonly TestController _controller;
+    private const string TestCorrelationId = "test-correlation-123";
+
+    public ControllerBaseExtensionsCoverageTests()
+    {
+        _controller = new TestController();
+    }
+
+    [Fact]
+    public void GetCorrelationId_WithCorrelationIdInContext_ExecutesContextRetrieval()
+    {
+        // Arrange
+        _controller.SetupHttpContext();
+        _controller.HttpContext.Items["CorrelationId"] = TestCorrelationId;
+
+        // Act
+        var correlationId = _controller.GetCorrelationId();
+
+        // Assert - Exercises correlation ID from context
+        Assert.Equal(TestCorrelationId, correlationId);
+    }
+
+    [Fact]
+    public void GetCorrelationId_WithActivityCurrent_ExecutesActivityIdFallback()
+    {
+        // Arrange
+        _controller.SetupHttpContext();
+        using var activity = new Activity("test-operation");
+        activity.Start();
+
+        // Act
+        var correlationId = _controller.GetCorrelationId();
+
+        // Assert - Exercises Activity.Current fallback
+        Assert.Equal(activity.Id, correlationId);
+    }
+
+    [Fact]
+    public void GetCorrelationId_WithTraceIdentifier_ExecutesTraceIdFallback()
+    {
+        // Arrange
+        _controller.SetupHttpContext();
+        var traceId = "trace-identifier-123";
+        _controller.HttpContext.TraceIdentifier = traceId;
+
+        // Act
+        var correlationId = _controller.GetCorrelationId();
+
+        // Assert - Exercises TraceIdentifier fallback
+        Assert.Equal(traceId, correlationId);
+    }
+
+    [Fact]
+    public void StandardBadRequest_WithMessage_ExecutesBadRequestResponse()
+    {
+        // Arrange
+        _controller.SetupHttpContext(TestCorrelationId);
+        var message = "Invalid request data";
+
+        // Act
+        var result = _controller.StandardBadRequest(message);
+
+        // Assert - Exercises StandardBadRequest path
+        Assert.NotNull(result);
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(400, result.StatusCode);
+
+        var errorResponse = Assert.IsType<ApiErrorResponse>(result.Value);
+        Assert.Equal("BAD_REQUEST", errorResponse.Error.Code);
+        Assert.Contains(resourceType, errorResponse.Error.Message);
+        Assert.Contains(resourceId, errorResponse.Error.Message);
+        Assert.Equal(TestCorrelationId, errorResponse.CorrelationId);
+        Assert.Equal("/api/test", errorResponse.Path);
+    }
+
+    [Fact]
+    public void StandardBadRequest_WithLongMessage_ExecutesMessageHandling()
+    {
+        // Arrange
+        _controller.SetupHttpContext();
+        var longMessage = new string('a', 500);
+
+        // Act
+        var result = _controller.StandardBadRequest(longMessage);
+
+        // Assert - Exercises long message path
+        Assert.NotNull(result);
+        var errorResponse = Assert.IsType<ApiErrorResponse>(result.Value);
+        Assert.Contains("a", errorResponse.Error.Message);
+    }
+
+    [Fact]
+    public void StandardValidationError_WithValidationErrors_ExecutesValidationResponse()
+    {
+        // Arrange
+        _controller.SetupHttpContext(TestCorrelationId);
+        var validationErrors = new Dictionary<string, string[]>
+        {
+            ["Email"] = new[] { "Email is required", "Invalid email format" },
+            ["Password"] = new[] { "Password must be at least 8 characters" }
+        };
+
+        // Act
+        var result = _controller.StandardValidationError(validationErrors);
+
+        // Assert - Exercises validation error path
+        Assert.NotNull(result);
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(400, result.StatusCode);
+
+        var errorResponse = Assert.IsType<ApiErrorResponse>(result.Value);
+        Assert.Equal("VALIDATION_ERROR", errorResponse.Error.Code);
+        Assert.Contains("validation", errorResponse.Error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(TestCorrelationId, errorResponse.CorrelationId);
+    }
+
+    [Fact]
+    public void StandardValidationError_WithEmptyErrors_ExecutesEmptyErrorsHandling()
+    {
+        // Arrange
+        _controller.SetupHttpContext();
+        var emptyErrors = new Dictionary<string, string[]>();
+
+        // Act
+        var result = _controller.StandardValidationError(emptyErrors);
+
+        // Assert - Exercises empty validation errors
+        Assert.NotNull(result);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public void StandardValidationError_WithMultipleFieldErrors_ExecutesMultipleFieldsHandling()
+    {
+        // Arrange
+        _controller.SetupHttpContext();
+        var multipleErrors = new Dictionary<string, string[]>
+        {
+            ["Field1"] = new[] { "Error 1" },
+            ["Field2"] = new[] { "Error 2" },
+            ["Field3"] = new[] { "Error 3", "Error 4" }
+        };
+
+        // Act
+        var result = _controller.StandardValidationError(multipleErrors);
+
+        // Assert - Exercises multiple fields
+        Assert.NotNull(result);
+        var errorResponse = Assert.IsType<ApiErrorResponse>(result.Value);
+        Assert.Equal("VALIDATION_ERROR", errorResponse.Error.Code);
+    }
+
+    [Fact]
+    public void StandardNotFound_WithMessage_ExecutesNotFoundResponse()
+    {
+        // Arrange
+        _controller.SetupHttpContext(TestCorrelationId);
+        var resourceType = "Content";
+        var resourceId = "123";
+
+        // Act
+        var result = _controller.StandardNotFound(resourceType, resourceId);
+
+        // Assert - Exercises StandardNotFound path
+        Assert.NotNull(result);
+        Assert.IsType<NotFoundObjectResult>(result);
+        Assert.Equal(404, result.StatusCode);
+
+        var errorResponse = Assert.IsType<ApiErrorResponse>(result.Value);
+        Assert.Equal("RESOURCE_NOT_FOUND", errorResponse.Error.Code);
+        Assert.Contains(resourceType, errorResponse.Error.Message);
+        Assert.Contains(resourceId, errorResponse.Error.Message);
+        Assert.Equal(TestCorrelationId, errorResponse.CorrelationId);
+    }
+
+    [Fact]
+    public void StandardUnauthorized_WithMessage_ExecutesUnauthorizedResponse()
+    {
+        // Arrange
+        _controller.SetupHttpContext(TestCorrelationId);
+        var message = "Authentication required";
+
+        // Act
+        var result = _controller.StandardUnauthorized(message);
+
+        // Assert - Exercises StandardUnauthorized path
+        Assert.NotNull(result);
+        Assert.IsType<UnauthorizedObjectResult>(result);
+        Assert.Equal(401, result.StatusCode);
+
+        var errorResponse = Assert.IsType<ApiErrorResponse>(result.Value);
+        Assert.Equal("UNAUTHORIZED", errorResponse.Error.Code);
+        Assert.Contains(resourceType, errorResponse.Error.Message);
+        Assert.Contains(resourceId, errorResponse.Error.Message);
+    }
+
+    [Fact]
+    public void StandardForbidden_WithMessage_ExecutesForbiddenResponse()
+    {
+        // Arrange
+        _controller.SetupHttpContext(TestCorrelationId);
+        var message = "Insufficient permissions";
+
+        // Act
+        var result = _controller.StandardForbidden(message);
+
+        // Assert - Exercises StandardForbidden path
+        Assert.NotNull(result);
+        Assert.IsType<ObjectResult>(result);
+        Assert.Equal(403, result.StatusCode);
+
+        var errorResponse = Assert.IsType<ApiErrorResponse>(result.Value);
+        Assert.Equal("FORBIDDEN", errorResponse.Error.Code);
+        Assert.Contains(resourceType, errorResponse.Error.Message);
+        Assert.Contains(resourceId, errorResponse.Error.Message);
+    }
+
+    [Fact]
+    public void StandardInternalError_WithMessage_ExecutesInternalErrorResponse()
+    {
+        // Arrange
+        _controller.SetupHttpContext(TestCorrelationId);
+        var message = "Internal server error";
+
+        // Act
+        var result = _controller.StandardInternalError(message);
+
+        // Assert - Exercises StandardInternalError path
+        Assert.NotNull(result);
+        Assert.IsType<ObjectResult>(result);
+        Assert.Equal(500, result.StatusCode);
+
+        var errorResponse = Assert.IsType<ApiErrorResponse>(result.Value);
+        Assert.Equal("INTERNAL_ERROR", errorResponse.Error.Code);
+        Assert.Contains(resourceType, errorResponse.Error.Message);
+        Assert.Contains(resourceId, errorResponse.Error.Message);
+    }
+
+    [Fact]
+    public void StandardConflict_WithMessage_ExecutesConflictResponse()
+    {
+        // Arrange
+        _controller.SetupHttpContext(TestCorrelationId);
+        var message = "Resource conflict";
+
+        // Act
+        var result = _controller.StandardConflict(message);
+
+        // Assert - Exercises StandardConflict path
+        Assert.NotNull(result);
+        Assert.IsType<ConflictObjectResult>(result);
+        Assert.Equal(409, result.StatusCode);
+
+        var errorResponse = Assert.IsType<ApiErrorResponse>(result.Value);
+        Assert.Equal("CONFLICT", errorResponse.Error.Code);
+        Assert.Contains(resourceType, errorResponse.Error.Message);
+        Assert.Contains(resourceId, errorResponse.Error.Message);
+    }
+
+    [Fact]
+    public void AllErrorMethods_WithTraceId_ExecutesTraceIdInclusion()
+    {
+        // Arrange
+        _controller.SetupHttpContext();
+        using var activity = new Activity("test-operation");
+        activity.Start();
+
+        // Act & Assert - Test all error methods include trace ID
+        var badRequest = _controller.StandardBadRequest("test");
+        var notFound = _controller.StandardNotFound("Resource", "123");
+        var unauthorized = _controller.StandardUnauthorized("test");
+
+        Assert.NotNull((badRequest.Value as ApiErrorResponse)?.TraceId);
+        Assert.NotNull((notFound.Value as ApiErrorResponse)?.TraceId);
+        Assert.NotNull((unauthorized.Value as ApiErrorResponse)?.TraceId);
+    }
+
+    // Test helper controller
+    private class TestController : ControllerBase
+    {
+        public void SetupHttpContext(string? correlationId = null)
+        {
+            var httpContext = new DefaultHttpContext();
+            httpContext.Request.Path = "/api/test";
+
+            if (correlationId != null)
+            {
+                httpContext.Items["CorrelationId"] = correlationId;
+            }
+
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = httpContext
+            };
+        }
+    }
+}

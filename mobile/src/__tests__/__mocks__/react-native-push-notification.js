@@ -1,0 +1,16 @@
+export default {
+  configure: jest.fn(),
+  scheduleLocalNotification: jest.fn(),
+  cancelLocalNotifications: jest.fn(),
+  cancelAllLocalNotifications: jest.fn(),
+  getScheduledLocalNotifications: jest.fn(() => Promise.resolve([])),
+  getDeliveredNotifications: jest.fn(() => Promise.resolve([])),
+  removeAllDeliveredNotifications: jest.fn(),
+  createChannel: jest.fn(),
+  deleteChannel: jest.fn(),
+  getInitialNotification: jest.fn(() => Promise.resolve(null)),
+  requestPermissions: jest.fn(() => Promise.resolve({ alert: true, badge: true, sound: true })),
+  abandonPermissions: jest.fn(),
+  setApplicationIconBadgeNumber: jest.fn(),
+  getApplicationIconBadgeNumber: jest.fn(() => Promise.resolve(0)),
+};

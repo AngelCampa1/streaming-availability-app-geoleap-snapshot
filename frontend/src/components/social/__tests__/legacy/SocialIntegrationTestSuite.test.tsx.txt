@@ -1,0 +1,681 @@
+/**
+ * Comprehensive Social Integration Test Suite
+ * Tests all social media components, hooks, and workflows
+ * Ensures complete social functionality coverage
+ */
+
+import React from 'react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { jest } from '@jest/globals';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+// Import all social components for comprehensive testing
+import { SocialAuthProvider } from '../../../contexts/SocialAuthContext';
+import { SocialLoginButton } from '../SocialLoginButton';
+import { SocialShareButton } from '../SocialShareButton';
+import { SocialShareModal } from '../SocialShareModal';
+import { SocialOnboarding } from '../SocialOnboarding';
+import { SocialConnectionsManager } from '../SocialConnectionsManager';
+import { SocialRecommendations } from '../SocialRecommendations';
+import { SocialAnalyticsTracker } from '../SocialAnalyticsTracker';
+import { SocialProofElements } from '../SocialProofElements';
+import { MobileSocialSharing } from '../MobileSocialSharing';
+import { SocialAuthCallback } from '../SocialAuthCallback';
+import { SocialPlatform } from '../../../types/social';
+
+// Mock all external services
+const mockSocialAuthService = {
+  initiateSocialLogin: jest.fn(),
+  handleAuthCallback: jest.fn(),
+  refreshToken: jest.fn(),
+  disconnectSocial: jest.fn(),
+  getUserProfile: jest.fn(),
+  getFriendsList: jest.fn(),
+  validateToken: jest.fn(),
+  getConnectedPlatforms: jest.fn()
+};
+
+const mockSocialSharingService = {
+  shareContent: jest.fn(),
+  trackShare: jest.fn(),
+  getShareMetrics: jest.fn(),
+  generateShareUrl: jest.fn(),
+  getSocialProof: jest.fn()
+};
+
+const mockPrivacyService = {
+  getConsentStatus: jest.fn(),
+  updateConsent: jest.fn(),
+  exportUserData: jest.fn(),
+  deleteUserData: jest.fn(),
+  getDataUsageReport: jest.fn()
+};
+
+const mockAnalyticsService = {
+  trackSocialLogin: jest.fn(),
+  trackConsentChange: jest.fn(),
+  trackSocialInteraction: jest.fn(),
+  trackShare: jest.fn(),
+  trackClick: jest.fn()
+};
+
+const mockRecommendationService = {
+  getSocialRecommendations: jest.fn(),
+  getFriendActivity: jest.fn(),
+  getPopularContent: jest.fn(),
+  getTrendingShares: jest.fn()
+};
+
+// Mock API calls instead of missing service modules
+global.fetch = jest.fn(() =>
+  Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve({}),
+  })
+) as jest.Mock;
+
+// Mock React Query
+const createTestQueryClient = () => new QueryClient({
+  defaultOptions: {
+    queries: { retry: false, cacheTime: 0 },
+    mutations: { retry: false }
+  }
+});
+
+// Test wrapper with all providers
+const TestWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const queryClient = createTestQueryClient();
+  
+  return (
+    <QueryClientProvider client={queryClient}>
+      <SocialAuthProvider>
+        {children}
+      </SocialAuthProvider>
+    </QueryClientProvider>
+  );
+};
+
+// Mock window and crypto APIs
+Object.defineProperty(window, 'open', {
+  writable: true,
+  value: jest.fn(() => ({
+    close: jest.fn(),
+    closed: false,
+    location: { href: '' }
+  }))
+});
+
+Object.defineProperty(navigator, 'share', {
+  writable: true,
+  value: jest.fn(() => Promise.resolve())
+});
+
+Object.defineProperty(window, 'crypto', {
+  writable: true,
+  value: {
+    getRandomValues: jest.fn((arr) => {
+      for (let i = 0; i < arr.length; i++) {
+        arr[i] = Math.floor(Math.random() * 256);
+      }
+      return arr;
+    })
+  }
+});
+
+describe('Social Integration Test Suite', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    
+    // Setup default mock responses
+    mockSocialAuthService.initiateSocialLogin.mockResolvedValue({
+      authUrl: 'https://facebook.com/oauth/authorize?client_id=123',
+      state: 'secure_state_123'
+    });
+    
+    mockSocialAuthService.getConnectedPlatforms.mockResolvedValue([]);
+    
+    mockSocialSharingService.generateShareUrl.mockResolvedValue({
+      url: 'https://example.com/share/123',
+      shortUrl: 'https://short.ly/abc123'
+    });
+    
+    mockPrivacyService.getConsentStatus.mockResolvedValue({
+      hasConsent: true,
+      consentDate: new Date().toISOString(),
+      permissions: ['public_profile', 'email']
+    });
+    
+    mockRecommendationService.getSocialRecommendations.mockResolvedValue([
+      { id: '1', title: 'The Dark Knight', type: 'movie', friendCount: 5 },
+      { id: '2', title: 'Breaking Bad', type: 'tv', friendCount: 3 }
+    ]);
+  });
+
+  describe('Social Login Integration', () => {
+    it('should render all social login buttons', () => {
+      const platforms = [SocialPlatform.Facebook, SocialPlatform.Twitter, SocialPlatform.Instagram];
+      
+      render(
+        <TestWrapper>
+          <div>
+            {platforms.map(platform => (
+              <SocialLoginButton key={platform} platform={platform} />
+            ))}
+          </div>
+        </TestWrapper>
+      );
+
+      platforms.forEach(platform => {
+        expect(screen.getByRole('button', { 
+          name: new RegExp(`login with ${platform}`, 'i') 
+        })).toBeInTheDocument();
+      });
+    });
+
+    it('should handle OAuth flow for multiple platforms', async () => {
+      const user = userEvent.setup();
+      const platforms = [SocialPlatform.Facebook, SocialPlatform.Twitter];
+      
+      for (const platform of platforms) {
+        render(
+          <TestWrapper>
+            <SocialLoginButton platform={platform} />
+          </TestWrapper>
+        );
+
+        const loginButton = screen.getByRole('button', { 
+          name: new RegExp(`login with ${platform}`, 'i') 
+        });
+        
+        await user.click(loginButton);
+
+        await waitFor(() => {
+          expect(mockSocialAuthService.initiateSocialLogin).toHaveBeenCalledWith(
+            expect.objectContaining({ platform })
+          );
+        });
+      }
+    });
+
+    it('should handle authentication callback processing', async () => {
+      mockSocialAuthService.handleAuthCallback.mockResolvedValue({
+        success: true,
+        user: { id: 'user_123', name: 'John Doe', email: 'john@example.com' },
+        accessToken: 'access_token_123'
+      });
+
+      render(
+        <TestWrapper>
+          <SocialAuthCallback 
+            platform={SocialPlatform.Facebook}
+            code="auth_code_123"
+            state="valid_state"
+          />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(mockSocialAuthService.handleAuthCallback).toHaveBeenCalledWith({
+          platform: SocialPlatform.Facebook,
+          code: 'auth_code_123',
+          state: 'valid_state'
+        });
+      });
+    });
+  });
+
+  describe('Social Sharing Integration', () => {
+    it('should render social share buttons for all platforms', () => {
+      const content = {
+        id: 'movie_123',
+        title: 'The Dark Knight',
+        type: 'movie' as const,
+        url: 'https://example.com/movie/123'
+      };
+
+      render(
+        <TestWrapper>
+          <SocialShareButton content={content} platform={SocialPlatform.Facebook} />
+          <SocialShareButton content={content} platform={SocialPlatform.Twitter} />
+          <SocialShareButton content={content} platform={SocialPlatform.Instagram} />
+        </TestWrapper>
+      );
+
+      expect(screen.getByRole('button', { name: /share on facebook/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /share on twitter/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /share on instagram/i })).toBeInTheDocument();
+    });
+
+    it('should open share modal with platform options', async () => {
+      const user = userEvent.setup();
+      const content = {
+        id: 'movie_123',
+        title: 'The Dark Knight',
+        type: 'movie' as const,
+        url: 'https://example.com/movie/123'
+      };
+
+      render(
+        <TestWrapper>
+          <SocialShareModal 
+            isOpen={true}
+            onClose={jest.fn()}
+            content={content}
+          />
+        </TestWrapper>
+      );
+
+      expect(screen.getByText(/share this content/i)).toBeInTheDocument();
+      expect(screen.getByText(/the dark knight/i)).toBeInTheDocument();
+      
+      // Should show multiple platform options
+      expect(screen.getByRole('button', { name: /facebook/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /twitter/i })).toBeInTheDocument();
+    });
+
+    it('should handle mobile sharing with native API fallback', async () => {
+      const user = userEvent.setup();
+      const content = {
+        id: 'movie_123',
+        title: 'The Dark Knight',
+        type: 'movie' as const,
+        url: 'https://example.com/movie/123'
+      };
+
+      render(
+        <TestWrapper>
+          <MobileSocialSharing content={content} />
+        </TestWrapper>
+      );
+
+      const shareButton = screen.getByRole('button', { name: /share/i });
+      await user.click(shareButton);
+
+      await waitFor(() => {
+        expect(navigator.share).toHaveBeenCalledWith({
+          title: 'The Dark Knight',
+          url: 'https://example.com/movie/123'
+        });
+      });
+    });
+
+    it('should track sharing events', async () => {
+      const user = userEvent.setup();
+      const content = {
+        id: 'movie_123',
+        title: 'The Dark Knight',
+        type: 'movie' as const,
+        url: 'https://example.com/movie/123'
+      };
+
+      render(
+        <TestWrapper>
+          <SocialShareButton content={content} platform={SocialPlatform.Facebook} />
+          <SocialAnalyticsTracker />
+        </TestWrapper>
+      );
+
+      const shareButton = screen.getByRole('button', { name: /share on facebook/i });
+      await user.click(shareButton);
+
+      await waitFor(() => {
+        expect(mockAnalyticsService.trackShare).toHaveBeenCalledWith({
+          contentId: 'movie_123',
+          contentType: 'movie',
+          platform: SocialPlatform.Facebook,
+          method: 'button_click'
+        });
+      });
+    });
+  });
+
+  describe('Social Connections Management', () => {
+    it('should display connected social accounts', async () => {
+      mockSocialAuthService.getConnectedPlatforms.mockResolvedValue([
+        { platform: SocialPlatform.Facebook, connected: true, profileName: 'John Doe' },
+        { platform: SocialPlatform.Twitter, connected: true, profileName: '@johndoe' }
+      ]);
+
+      render(
+        <TestWrapper>
+          <SocialConnectionsManager />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/john doe/i)).toBeInTheDocument();
+        expect(screen.getByText(/@johndoe/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should allow disconnecting social accounts', async () => {
+      const user = userEvent.setup();
+      mockSocialAuthService.getConnectedPlatforms.mockResolvedValue([
+        { platform: SocialPlatform.Facebook, connected: true, profileName: 'John Doe' }
+      ]);
+      mockSocialAuthService.disconnectSocial.mockResolvedValue({ success: true });
+
+      render(
+        <TestWrapper>
+          <SocialConnectionsManager />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/john doe/i)).toBeInTheDocument();
+      });
+
+      const disconnectButton = screen.getByRole('button', { name: /disconnect/i });
+      await user.click(disconnectButton);
+
+      await waitFor(() => {
+        expect(mockSocialAuthService.disconnectSocial).toHaveBeenCalledWith(SocialPlatform.Facebook);
+      });
+    });
+  });
+
+  describe('Social Recommendations', () => {
+    it('should display friend-based content recommendations', async () => {
+      render(
+        <TestWrapper>
+          <SocialRecommendations userId="user_123" />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/the dark knight/i)).toBeInTheDocument();
+        expect(screen.getByText(/breaking bad/i)).toBeInTheDocument();
+        expect(screen.getByText(/5 friends/i)).toBeInTheDocument();
+        expect(screen.getByText(/3 friends/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should handle empty recommendations gracefully', async () => {
+      mockRecommendationService.getSocialRecommendations.mockResolvedValue([]);
+
+      render(
+        <TestWrapper>
+          <SocialRecommendations userId="user_123" />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/no recommendations/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Social Proof Elements', () => {
+    it('should display social proof indicators', async () => {
+      mockSocialSharingService.getSocialProof.mockResolvedValue({
+        shareCount: 1250,
+        friendActivity: ['Alice', 'Bob', 'Charlie'],
+        trending: true,
+        popularityScore: 0.85
+      });
+
+      render(
+        <TestWrapper>
+          <SocialProofElements contentId="movie_123" />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/1,250 shares/i)).toBeInTheDocument();
+        expect(screen.getByText(/alice, bob, charlie/i)).toBeInTheDocument();
+        expect(screen.getByText(/trending/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should update social proof in real-time', async () => {
+      let mockResponse = {
+        shareCount: 100,
+        friendActivity: ['Alice'],
+        trending: false,
+        popularityScore: 0.3
+      };
+
+      mockSocialSharingService.getSocialProof.mockImplementation(() => 
+        Promise.resolve(mockResponse)
+      );
+
+      const { rerender } = render(
+        <TestWrapper>
+          <SocialProofElements contentId="movie_123" />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/100 shares/i)).toBeInTheDocument();
+      });
+
+      // Simulate real-time update
+      mockResponse = {
+        shareCount: 150,
+        friendActivity: ['Alice', 'Bob'],
+        trending: true,
+        popularityScore: 0.6
+      };
+
+      rerender(
+        <TestWrapper>
+          <SocialProofElements contentId="movie_123" />
+        </TestWrapper>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/150 shares/i)).toBeInTheDocument();
+        expect(screen.getByText(/trending/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Social Onboarding', () => {
+    it('should guide users through social setup', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <TestWrapper>
+          <SocialOnboarding onComplete={jest.fn()} />
+        </TestWrapper>
+      );
+
+      expect(screen.getByText(/connect your social accounts/i)).toBeInTheDocument();
+      expect(screen.getByText(/discover what your friends are watching/i)).toBeInTheDocument();
+
+      const continueButton = screen.getByRole('button', { name: /continue/i });
+      await user.click(continueButton);
+
+      expect(screen.getByText(/choose your privacy settings/i)).toBeInTheDocument();
+    });
+
+    it('should handle privacy preferences during onboarding', async () => {
+      const user = userEvent.setup();
+      const onComplete = jest.fn();
+
+      render(
+        <TestWrapper>
+          <SocialOnboarding onComplete={onComplete} />
+        </TestWrapper>
+      );
+
+      // Navigate to privacy step
+      const continueButton = screen.getByRole('button', { name: /continue/i });
+      await user.click(continueButton);
+
+      // Set privacy preferences
+      const shareWithFriendsCheckbox = screen.getByRole('checkbox', { 
+        name: /share my activity with friends/i 
+      });
+      await user.click(shareWithFriendsCheckbox);
+
+      const finishButton = screen.getByRole('button', { name: /finish/i });
+      await user.click(finishButton);
+
+      await waitFor(() => {
+        expect(onComplete).toHaveBeenCalledWith({
+          connectedPlatforms: [],
+          privacySettings: expect.objectContaining({
+            shareActivity: true
+          })
+        });
+      });
+    });
+  });
+
+  describe('Error Handling and Edge Cases', () => {
+    it('should handle authentication failures gracefully', async () => {
+      const user = userEvent.setup();
+      mockSocialAuthService.initiateSocialLogin.mockRejectedValue(
+        new Error('Authentication failed')
+      );
+
+      render(
+        <TestWrapper>
+          <SocialLoginButton platform={SocialPlatform.Facebook} />
+        </TestWrapper>
+      );
+
+      const loginButton = screen.getByRole('button', { name: /login with facebook/i });
+      await user.click(loginButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/authentication failed/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should handle network errors during sharing', async () => {
+      const user = userEvent.setup();
+      mockSocialSharingService.shareContent.mockRejectedValue(
+        new Error('Network error')
+      );
+
+      const content = {
+        id: 'movie_123',
+        title: 'The Dark Knight',
+        type: 'movie' as const,
+        url: 'https://example.com/movie/123'
+      };
+
+      render(
+        <TestWrapper>
+          <SocialShareButton content={content} platform={SocialPlatform.Facebook} />
+        </TestWrapper>
+      );
+
+      const shareButton = screen.getByRole('button', { name: /share on facebook/i });
+      await user.click(shareButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/sharing failed/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should handle offline scenarios', async () => {
+      // Mock offline status
+      Object.defineProperty(navigator, 'onLine', {
+        writable: true,
+        value: false
+      });
+
+      render(
+        <TestWrapper>
+          <SocialLoginButton platform={SocialPlatform.Facebook} />
+        </TestWrapper>
+      );
+
+      expect(screen.getByText(/offline/i)).toBeInTheDocument();
+      expect(screen.getByRole('button')).toBeDisabled();
+    });
+
+    it('should handle rate limiting scenarios', async () => {
+      const user = userEvent.setup();
+      mockSocialAuthService.initiateSocialLogin.mockRejectedValue({
+        error: 'rate_limit_exceeded',
+        retryAfter: 60
+      });
+
+      render(
+        <TestWrapper>
+          <SocialLoginButton platform={SocialPlatform.Facebook} />
+        </TestWrapper>
+      );
+
+      const loginButton = screen.getByRole('button', { name: /login with facebook/i });
+      await user.click(loginButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/rate limit exceeded/i)).toBeInTheDocument();
+        expect(screen.getByText(/try again in 60 seconds/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Accessibility', () => {
+    it('should provide proper ARIA labels for social buttons', () => {
+      const content = {
+        id: 'movie_123',
+        title: 'The Dark Knight',
+        type: 'movie' as const,
+        url: 'https://example.com/movie/123'
+      };
+
+      render(
+        <TestWrapper>
+          <SocialLoginButton platform={SocialPlatform.Facebook} />
+          <SocialShareButton content={content} platform={SocialPlatform.Twitter} />
+        </TestWrapper>
+      );
+
+      const loginButton = screen.getByRole('button', { name: /login with facebook/i });
+      const shareButton = screen.getByRole('button', { name: /share on twitter/i });
+
+      expect(loginButton).toHaveAttribute('aria-label');
+      expect(shareButton).toHaveAttribute('aria-label');
+    });
+
+    it('should support keyboard navigation', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <TestWrapper>
+          <SocialLoginButton platform={SocialPlatform.Facebook} />
+          <SocialLoginButton platform={SocialPlatform.Twitter} />
+        </TestWrapper>
+      );
+
+      // Tab through buttons
+      await user.tab();
+      expect(screen.getByRole('button', { name: /login with facebook/i })).toHaveFocus();
+
+      await user.tab();
+      expect(screen.getByRole('button', { name: /login with twitter/i })).toHaveFocus();
+
+      // Activate with Enter
+      await user.keyboard('{Enter}');
+      await waitFor(() => {
+        expect(mockSocialAuthService.initiateSocialLogin).toHaveBeenCalled();
+      });
+    });
+
+    it('should provide screen reader announcements for state changes', async () => {
+      render(
+        <TestWrapper>
+          <SocialConnectionsManager />
+          <div role="status" aria-live="polite" id="sr-announcements" />
+        </TestWrapper>
+      );
+
+      // Simulate connection status change
+      mockSocialAuthService.getConnectedPlatforms.mockResolvedValue([
+        { platform: SocialPlatform.Facebook, connected: true, profileName: 'John Doe' }
+      ]);
+
+      await waitFor(() => {
+        const announcement = document.getElementById('sr-announcements');
+        expect(announcement).toBeInTheDocument();
+      });
+    });
+  });
+});

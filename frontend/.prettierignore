@@ -1,0 +1,10 @@
+node_modules
+.next
+build
+dist
+coverage
+*.min.js
+public/sw.js
+test-results
+out
+next-env.d.ts

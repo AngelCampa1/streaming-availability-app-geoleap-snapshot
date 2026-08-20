@@ -1,0 +1,506 @@
+# Mobile Build Pipeline for App Store Deployment
+# Supports both iOS (TestFlight) and Android (Play Console) builds
+# Includes comprehensive testing and quality gates
+
+name: Mobile App Store Deployment Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - release/*
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+
+env:
+  NODE_VERSION: '18'
+  JAVA_VERSION: '17'
+  XCODE_VERSION: '15.0'
+  FLUTTER_VERSION: '3.16.0'
+
+jobs:
+  # Quality Gates - Must pass before building
+  quality_gates:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+    outputs:
+      quality_score: ${{ steps.gates.outputs.score }}
+      gates_passed: ${{ steps.gates.outputs.passed }}
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Install Dependencies
+        run: |
+          npm ci
+          cd frontend && npm ci
+          cd ../mobile && npm ci
+          cd ../backend && dotnet restore
+
+      - name: Run Quality Gates
+        id: gates
+        run: |
+          node tests/quality-gates/release-pipeline-gates.js > quality_results.txt 2>&1
+          GATES_PASSED=$?
+          QUALITY_SCORE=$(grep "Average Score:" quality_results.txt | grep -oE '[0-9]+' || echo "0")
+          
+          echo "score=$QUALITY_SCORE" >> $GITHUB_OUTPUT
+          echo "passed=$([[ $GATES_PASSED -eq 0 ]] && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+          
+          cat quality_results.txt
+
+      - name: Upload Quality Gate Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-gate-results
+          path: |
+            test-results/quality-gates-report.json
+            test-results/*-compliance-report.json
+            quality_results.txt
+
+      - name: Fail if Quality Gates Don't Pass
+        if: steps.gates.outputs.passed != 'true'
+        run: |
+          echo "Quality gates failed. Cannot proceed with deployment."
+          exit 1
+
+  # Backend Tests
+  backend_tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    needs: quality_gates
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore Dependencies
+        run: cd backend && dotnet restore
+
+      - name: Build Backend
+        run: cd backend && dotnet build --no-restore
+
+      - name: Run Tests
+        run: |
+          cd backend
+          dotnet test --no-build --verbosity normal --logger trx --collect:"XPlat Code Coverage"
+
+      - name: Upload Backend Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-test-results
+          path: |
+            backend/TestResults/
+            backend/test-results/
+
+  # Frontend Tests
+  frontend_tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    needs: quality_gates
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Dependencies
+        run: cd frontend && npm ci
+
+      - name: Run Linter
+        run: cd frontend && npm run lint
+
+      - name: Run Type Checking
+        run: cd frontend && npx tsc --noEmit
+
+      - name: Run Tests with Coverage
+        run: cd frontend && npm test -- --coverage --watchAll=false
+
+      - name: Upload Frontend Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-test-results
+          path: |
+            frontend/coverage/
+            frontend/test-results/
+
+  # Mobile Tests
+  mobile_tests:
+    name: Mobile Tests
+    runs-on: ubuntu-latest
+    needs: quality_gates
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install Dependencies
+        run: cd mobile && npm ci
+
+      - name: Run Linter
+        run: cd mobile && npm run lint
+
+      - name: Run Type Checking
+        run: cd mobile && npm run type-check
+
+      - name: Run Tests
+        run: cd mobile && npm test -- --watchAll=false
+
+      - name: Upload Mobile Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mobile-test-results
+          path: |
+            mobile/coverage/
+            mobile/test-results/
+
+  # Security Scanning
+  security_scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: quality_gates
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Dependency Security Audit
+        run: |
+          npm audit --audit-level high
+          cd frontend && npm audit --audit-level high
+          cd ../mobile && npm audit --audit-level high
+
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/init@v3
+        with:
+          languages: 'javascript,typescript,csharp'
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+      - name: Run SAST Security Scan
+        uses: securecodewarrior/github-action-add-sarif@v1
+        with:
+          sarif-file: security-scan-results.sarif
+
+  # Performance Testing
+  performance_tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: quality_gates
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Performance Benchmarks
+        run: npm test tests/performance-benchmarking/store-approval-benchmarks.test.js
+
+      - name: Upload Performance Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-test-results
+          path: test-results/performance-*.json
+
+  # Accessibility Testing
+  accessibility_tests:
+    name: Accessibility Tests
+    runs-on: ubuntu-latest
+    needs: quality_gates
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Accessibility Compliance Tests
+        run: npm test tests/accessibility-testing/accessibility-compliance.test.js
+
+      - name: Upload Accessibility Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: accessibility-test-results
+          path: test-results/accessibility-*.json
+
+  # iOS Build and Deploy
+  ios_build:
+    name: iOS Build & TestFlight Deploy
+    runs-on: macos-latest
+    needs: [quality_gates, backend_tests, frontend_tests, mobile_tests, security_scan]
+    if: needs.quality_gates.outputs.gates_passed == 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Dependencies
+        run: cd mobile && npm ci
+
+      - name: Setup Ruby for Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.0'
+          bundler-cache: true
+          working-directory: mobile/ios
+
+      - name: Install CocoaPods
+        run: |
+          cd mobile/ios
+          pod install --repo-update
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      - name: Configure Keychain
+        run: |
+          security create-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+
+      - name: Import Certificates
+        env:
+          P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+          CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+        run: |
+          echo "$CERTIFICATE_BASE64" | base64 --decode > certificate.p12
+          security import certificate.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+
+      - name: Install Provisioning Profile
+        env:
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/GeoLeap.mobileprovision
+
+      - name: Build iOS App
+        run: |
+          cd mobile/ios
+          xcodebuild -workspace GeoLeap.xcworkspace \
+            -scheme GeoLeap \
+            -configuration Release \
+            -destination generic/platform=iOS \
+            -archivePath build/GeoLeap.xcarchive \
+            archive
+
+      - name: Export IPA
+        run: |
+          cd mobile/ios
+          xcodebuild -exportArchive \
+            -archivePath build/GeoLeap.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath build/
+
+      - name: Upload to TestFlight
+        env:
+          APP_STORE_CONNECT_USERNAME: ${{ secrets.APP_STORE_CONNECT_USERNAME }}
+          APP_STORE_CONNECT_PASSWORD: ${{ secrets.APP_STORE_CONNECT_PASSWORD }}
+        run: |
+          cd mobile/ios
+          xcrun altool --upload-app \
+            --type ios \
+            --file "build/GeoLeap.ipa" \
+            --username "$APP_STORE_CONNECT_USERNAME" \
+            --password "$APP_STORE_CONNECT_PASSWORD"
+
+      - name: Upload iOS Build Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-build-artifacts
+          path: |
+            mobile/ios/build/
+            mobile/ios/*.ipa
+
+  # Android Build and Deploy
+  android_build:
+    name: Android Build & Play Console Deploy
+    runs-on: ubuntu-latest
+    needs: [quality_gates, backend_tests, frontend_tests, mobile_tests, security_scan]
+    if: needs.quality_gates.outputs.gates_passed == 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Install Dependencies
+        run: cd mobile && npm ci
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Generate Release Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          cd mobile/android/app
+          echo "$KEYSTORE_BASE64" | base64 --decode > release.keystore
+
+      - name: Build Android App Bundle
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cd mobile/android
+          ./gradlew bundleRelease \
+            -Pandroid.injected.signing.store.file=app/release.keystore \
+            -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+
+      - name: Upload to Play Console
+        env:
+          PLAY_STORE_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          echo "$PLAY_STORE_SERVICE_ACCOUNT_JSON" > service-account.json
+          
+          # Upload AAB to Play Console Internal Testing Track
+          # This would typically use Google Play Developer API
+          echo "Uploading to Play Console Internal Testing Track"
+          # Implementation would go here
+
+      - name: Upload Android Build Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-build-artifacts
+          path: |
+            mobile/android/app/build/outputs/bundle/
+            mobile/android/app/build/outputs/apk/
+
+  # Deployment Summary
+  deployment_summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [ios_build, android_build]
+    if: always()
+    
+    steps:
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Generate Deployment Report
+        run: |
+          cat > deployment-summary.md << EOF
+          # 📱 Mobile App Deployment Summary
+          
+          **Deployment Date:** $(date)
+          **Git Commit:** ${{ github.sha }}
+          **Quality Score:** ${{ needs.quality_gates.outputs.quality_score }}%
+          
+          ## 🏗️ Build Status
+          - **iOS Build:** ${{ needs.ios_build.result }}
+          - **Android Build:** ${{ needs.android_build.result }}
+          
+          ## 🧪 Test Results
+          - **Backend Tests:** ${{ needs.backend_tests.result }}
+          - **Frontend Tests:** ${{ needs.frontend_tests.result }}
+          - **Mobile Tests:** ${{ needs.mobile_tests.result }}
+          - **Security Scan:** ${{ needs.security_scan.result }}
+          - **Performance Tests:** ${{ needs.performance_tests.result }}
+          - **Accessibility Tests:** ${{ needs.accessibility_tests.result }}
+          
+          ## 📊 Quality Gates
+          Quality gates passed: ${{ needs.quality_gates.outputs.gates_passed }}
+          
+          ## 🚀 Next Steps
+          - Monitor TestFlight and Play Console for feedback
+          - Review crash reports and user feedback
+          - Plan next release iteration
+          
+          EOF
+
+      - name: Upload Deployment Summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-summary
+          path: deployment-summary.md
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') && needs.ios_build.result == 'success' && needs.android_build.result == 'success'
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: GeoLeap ${{ github.ref }}
+          body_path: deployment-summary.md
+          draft: false
+          prerelease: false

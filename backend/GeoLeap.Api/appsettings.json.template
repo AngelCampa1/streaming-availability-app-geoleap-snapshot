@@ -1,0 +1,45 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*",
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=your-server;Database=GeoLeap;User Id=your-user;Password=your-password;TrustServerCertificate=true;MultipleActiveResultSets=true",
+    "Redis": "your-redis-connection-string"
+  },
+  "JwtSettings": {
+    "SecretKey": "your-jwt-secret-key-minimum-32-characters",
+    "Issuer": "GeoLeap",
+    "Audience": "GeoLeapUsers",
+    "ExpiryInHours": 24
+  },
+  "ExternalApis": {
+    "StreamingAvailability": {
+      "BaseUrl": "https://api.streamingavailability.com",
+      "ApiKey": "your-streaming-availability-api-key"
+    },
+    "MovieDatabase": {
+      "BaseUrl": "https://api.themoviedb.org/3",
+      "ApiKey": "your-tmdb-api-key"
+    }
+  },
+  "Stripe": {
+    "PublishableKey": "pk_test_your-stripe-publishable-key",
+    "SecretKey": "sk_test_your-stripe-secret-key",
+    "WebhookSecret": "whsec_your-stripe-webhook-secret"
+  },
+  "Sentry": {
+    "Dsn": "your-sentry-dsn",
+    "Environment": "production",
+    "TracesSampleRate": 0.2
+  },
+  "Cors": {
+    "AllowedOrigins": [
+      "http://localhost:3000",
+      "https://localhost:3000"
+    ]
+  }
+}
